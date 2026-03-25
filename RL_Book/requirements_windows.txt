@@ -1,0 +1,21 @@
+pyyaml==6.0.1
+
+# Gym 0.22 계열
+gym==0.22.0
+pyglet==1.5.27  # OpenGL 기반 GUI/멀티미디어 라이브러리
+pygame==2.1.0   # 2D 게임 엔진/멀티미디어 라이브러리 (Atari 게임 환경에서 필요)
+
+# Box2D: box2d-py 대신 사전 빌드된 물리 엔진 Wheel로 설치
+Box2D==2.3.10
+
+# 시각화/로그
+tensorboard==2.6.0
+
+# Ray: Windows용 cp39 Wheel로 설치
+ray[default]==1.13
+
+# numpy는 호환성 고려
+numpy==1.24.4
+
+# pybullet은 pip에서 설치하지 않고 conda로 설치
+# pybullet==3.25
