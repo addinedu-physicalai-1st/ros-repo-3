@@ -19,7 +19,8 @@ namespace pinky {
 using TcpMessageCallback = std::function<void(int, const ParsedMessage&)>;
 
 // Callback invoked when a client connects or disconnects.
-using TcpConnectionCallback = std::function<void(int, bool)>;  // fd, connected
+// Parameters: fd, connected, client_ip (empty on disconnect).
+using TcpConnectionCallback = std::function<void(int, bool, const std::string&)>;
 
 // Single-threaded epoll-based TCP server.
 // Call Start() to spawn the accept/read loop in a background thread.
@@ -44,6 +45,9 @@ class TcpServer {
   // Send a pre-framed message to all connected clients.
   void Broadcast(const std::vector<uint8_t>& data);
 
+  // Force-disconnect a client by fd (thread-safe, callable from outside).
+  void ForceDisconnect(int client_fd);
+
   bool IsRunning() const { return running_.load(); }
 
  private:
@@ -65,6 +69,7 @@ class TcpServer {
   // Per-client receive buffers
   struct ClientState {
     std::vector<uint8_t> recv_buffer;
+    std::string ip;
   };
   std::mutex clients_mutex_;
   std::unordered_map<int, ClientState> clients_;

@@ -369,3 +369,16 @@ def deserialize_map_data(
     w, h, res, ox, oy, ot = struct.unpack_from("<IIffff", payload, 0)
     data = payload[24:]
     return w, h, res, ox, oy, ot, data
+
+
+# ---------------------------------------------------------------------------
+# Deserializer (convenience wrapper around parse_message)
+# ---------------------------------------------------------------------------
+class Deserializer:
+    """Stateless message parser — wraps :func:`parse_message`."""
+
+    @staticmethod
+    def parse(
+        data: bytes,
+    ) -> tuple[ParseResult, Optional[ParsedMessage], int]:
+        return parse_message(data)

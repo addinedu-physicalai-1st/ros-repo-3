@@ -1,0 +1,29 @@
+# RL Inference Configuration
+model:
+  path: "models/sac_actor.onnx"
+  input_name: "state"
+  output_name: "action"
+  state_dim: 28
+  action_dim: 2
+
+observation:
+  lidar_sectors: 24
+  max_lidar_dist: 3.5
+  goal_dist_scale: 5.0
+  max_steps: 750
+
+action_mapping:
+  v_min: 0.0
+  v_max: 0.26
+  w_max: 1.0
+
+pd_control:
+  kp_v: 1.5
+  kd_v: 0.3
+  kp_w: 1.5
+  kd_w: 0.3
+
+navigation:
+  goal_tolerance: 0.05
+  lookahead_dist: 0.5
+  control_period_ms: 50

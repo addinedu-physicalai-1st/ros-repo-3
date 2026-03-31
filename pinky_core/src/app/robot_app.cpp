@@ -58,21 +58,21 @@ bool RobotApp::Init() {
     std::cout << "HAL disabled (Mock/PC mode).\n";
   }
 
+#ifdef PINKY_HAS_ONNXRUNTIME
   try {
     onnx_actor_ = std::make_unique<OnnxActor>(config_.onnx_model_path);
   } catch (const std::exception& e) {
     std::cerr << "OnnxActor load failed: " << e.what() << "\n";
   }
+#endif
 
   // Hook network callbacks
   tcp_->SetMessageCallback([this](int fd, const ParsedMessage& msg) {
     this->OnTcpMessage(fd, msg);
   });
-  tcp_->SetConnectionCallback([this](int fd, bool connected) {
+  tcp_->SetConnectionCallback([this](int fd, bool connected, const std::string& ip) {
     if (connected) {
-      // Dummy IP since TcpServer doesn't supply it right now; 
-      // in production fetch via getpeername
-      conn_mgr_->OnClientConnected(fd, "127.0.0.1"); 
+      conn_mgr_->OnClientConnected(fd, ip);
     } else {
       conn_mgr_->OnClientDisconnected(fd);
     }
@@ -148,9 +148,9 @@ void RobotApp::OnTcpMessage(int fd, const ParsedMessage& msg) {
   }
 
   if (msg.msg_type == MsgType::kSetPose) {
-    Pose2D pose = DeserializeSetPose(msg.payload);
+    // Reset odometry to origin (pose-aware reset not yet implemented)
     std::lock_guard<std::mutex> lock(state_mutex_);
-    odom_calc_.Reset(pose.x, pose.y, pose.theta);
+    odom_calc_.Reset();
     return;
   }
 }
@@ -167,7 +167,10 @@ void RobotApp::MotorOdomLoop() {
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
         // Update odometry
-        current_odom_ = odom_calc_.Update(js.position[0], js.position[1], Timestamp::Now().nanoseconds);
+        current_odom_ = odom_calc_.Update(
+            static_cast<int32_t>(js.position[0]),
+            static_cast<int32_t>(js.position[1]),
+            Timestamp::Now());
         
         // Broadcast Odom via UDP
         std::vector<uint8_t> odom_payload = serializer_->SerializeOdom(current_odom_);
@@ -175,23 +178,11 @@ void RobotApp::MotorOdomLoop() {
         udp_->Send(udp_pkt);
 
         // Apply commands to motor
-        if (!rl_navigation_active_) {
-          // Manual Command
-          auto rpms = diff_drive_.VelocityToRpm(target_cmd_vel_.linear_x, target_cmd_vel_.angular_z);
-          // Convert RPM to rad/s for SetVelocityWait
-          double left_rad_s = rpms.first * (2.0 * kPi / 60.0);
-          double right_rad_s = rpms.second * (2.0 * kPi / 60.0);
-          motor_->SetVelocityWait(left_rad_s, right_rad_s);
-        } else {
-          // RL Command handled here or in Lidar loop. 
-          // Usually RL step runs at Lidar rate (10-20Hz) and outputs target v, w.
-          // Motor loop runs at 50Hz and applies PD tracking to reach target.
-          CmdVel cmd = rl_controller_.Compute(target_cmd_vel_, current_odom_.vx, current_odom_.vth);
-          auto rpms = diff_drive_.VelocityToRpm(cmd.linear_x, cmd.angular_z);
-          double left_rad_s = rpms.first * (2.0 * kPi / 60.0);
-          double right_rad_s = rpms.second * (2.0 * kPi / 60.0);
-          motor_->SetVelocityWait(left_rad_s, right_rad_s);
-        }
+        // Both manual and RL paths write to target_cmd_vel_;
+        // RL path applies PD control in LidarLoop at inference rate.
+        auto [rpm_l, rpm_r] = diff_drive_.VelocityToRpm(
+            target_cmd_vel_.linear_x, target_cmd_vel_.angular_z);
+        motor_->SetVelocityWait(rpm_l, rpm_r);
       }
     }
 
@@ -267,20 +258,22 @@ void RobotApp::LidarLoop() {
           step = rl_step_count_++;
         }
 
+#ifdef PINKY_HAS_ONNXRUNTIME
         if (is_active && onnx_actor_) {
-          std::array<float, 28> obs = obs_builder_.Build(sectors, odom, goal.x, goal.y, step);
+          obs_builder_.SetGoal(goal.x, goal.y);
+          std::array<float, 28> obs = obs_builder_.Build(sectors, odom, step);
           std::array<float, 2> action = onnx_actor_->Infer(obs);
-          
-          float v = (action[0] + 1.0f) / 2.0f * 0.26f;
-          float w = action[1] * 1.0f;
-          
+          CmdVel cmd = rl_controller_.Compute(
+              action,
+              static_cast<float>(odom.vx),
+              static_cast<float>(odom.vth));
+
           {
             std::lock_guard<std::mutex> lock(state_mutex_);
-            // Target v, w sent to motor loop for PD control
-            target_cmd_vel_.linear_x = v;
-            target_cmd_vel_.angular_z = w;
+            target_cmd_vel_ = cmd;
           }
         }
+#endif
       } else {
         std::this_thread::sleep_for(50ms);
       }

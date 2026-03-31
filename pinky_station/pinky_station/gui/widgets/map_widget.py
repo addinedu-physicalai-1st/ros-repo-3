@@ -29,12 +29,12 @@ class MapWidget(QWidget):
 
     def update_odom(self, msg):
         try:
-            unpacked = struct.unpack('<Qddddd', msg.payload[:48])
-            stamp, x, y, theta, vx, vth = unpacked
+            # C++ SerializeOdom: x,y,theta,vx,vth as 5 x float32 = 20 bytes
+            x, y, theta, vx, vth = struct.unpack('<5f', msg.payload[:20])
             self.robot_x = x
             self.robot_y = y
             self.robot_theta = theta
-            self.update() # triggers paintEvent
+            self.update()
         except Exception:
             pass
 

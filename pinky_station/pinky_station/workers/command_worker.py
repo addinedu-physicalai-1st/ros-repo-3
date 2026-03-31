@@ -1,3 +1,5 @@
+import struct
+
 from PyQt6.QtCore import QThread, pyqtSignal
 import queue
 from pinky_station.protocol import message_types as mt
@@ -12,15 +14,15 @@ class CommandWorker(QThread):
         self._running = False
 
     def send_cmd_vel(self, linear_x: float, angular_z: float):
-        payload = self.client.serializer.serialize_cmd_vel(linear_x, angular_z)
+        payload = struct.pack('<ff', linear_x, angular_z)
         self._queue.put((mt.MSG_CMD_VEL, payload))
 
     def send_nav_goal(self, x: float, y: float, theta: float):
-        payload = self.client.serializer.serialize_nav_goal(x, y, theta)
+        payload = struct.pack('<3f', x, y, theta)
         self._queue.put((mt.MSG_NAV_GOAL, payload))
 
     def set_pose(self, x: float, y: float, theta: float):
-        payload = self.client.serializer.serialize_set_pose(x, y, theta)
+        payload = struct.pack('<3f', x, y, theta)
         self._queue.put((mt.MSG_SET_POSE, payload))
 
     def run(self):

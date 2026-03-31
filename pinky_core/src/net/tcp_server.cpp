@@ -106,7 +106,7 @@ void TcpServer::Stop() {
 
   std::lock_guard<std::mutex> lock(clients_mutex_);
   for (const auto& [fd, state] : clients_) {
-    if (on_connection_) on_connection_(fd, false);
+    if (on_connection_) on_connection_(fd, false, "");
     epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);
   }
@@ -163,6 +163,10 @@ void TcpServer::Broadcast(const std::vector<uint8_t>& data) {
   }
 }
 
+void TcpServer::ForceDisconnect(int client_fd) {
+  DisconnectClient(client_fd);
+}
+
 void TcpServer::RunLoop() {
   epoll_event events[kMaxEvents];
 
@@ -211,12 +215,16 @@ void TcpServer::AcceptClient() {
       continue;
     }
 
+    char ip_buf[INET_ADDRSTRLEN]{};
+    inet_ntop(AF_INET, &client_addr.sin_addr, ip_buf, sizeof(ip_buf));
+    std::string client_ip(ip_buf);
+
     {
       std::lock_guard<std::mutex> lock(clients_mutex_);
-      clients_[client_fd] = ClientState{};
+      clients_[client_fd] = ClientState{{}, client_ip};
     }
 
-    if (on_connection_) on_connection_(client_fd, true);
+    if (on_connection_) on_connection_(client_fd, true, client_ip);
   }
 }
 
@@ -283,7 +291,7 @@ void TcpServer::DisconnectClient(int fd) {
   if (call_cb) {
     epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);
-    if (on_connection_) on_connection_(fd, false);
+    if (on_connection_) on_connection_(fd, false, "");
   }
 }
 

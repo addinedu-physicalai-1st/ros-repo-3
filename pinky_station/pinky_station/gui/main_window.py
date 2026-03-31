@@ -134,7 +134,7 @@ class PinkyStationWindow(QMainWindow):
             # Sub-routing for tcp logs
             original_tcp_cb = self.conn.tcp.on_message
             def combined_cb(msg):
-                if msg.msg_type == mt.MSG_LOG:
+                if msg.msg_type == mt.MSG_DEBUG_LOG:
                     self.terminal_view.append_msg(msg)
                 if original_tcp_cb:
                     original_tcp_cb(msg)

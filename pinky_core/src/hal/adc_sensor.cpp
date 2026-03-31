@@ -1,6 +1,7 @@
 #include "pinky_core/hal/adc_sensor.h"
 
 #include <iostream>
+#include <unistd.h>
 
 #include "wiringPiI2C.h"
 #include "wiringPi.h"
@@ -10,7 +11,10 @@ namespace pinky {
 AdcSensor::AdcSensor(const Config& config) : config_(config) {}
 
 AdcSensor::~AdcSensor() {
-  // fd_ is managed by system process lifecycle, but could be closed
+  if (fd_ >= 0) {
+    close(fd_);
+    fd_ = -1;
+  }
 }
 
 bool AdcSensor::Init() {

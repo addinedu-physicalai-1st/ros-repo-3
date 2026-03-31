@@ -48,12 +48,9 @@ class TerminalWidget(QWidget):
 
     def append_msg(self, msg: ParsedMessage):
         try:
-            # Struct: severity(1), timestamp_ns(8), length(2), string
+            # C++ SerializeDebugLog: severity(u8) + timestamp_ns(u64) + text + null
             severity = msg.payload[0]
-            # ts = struct.unpack('<Q', msg.payload[1:9])[0]
-            str_len = struct.unpack('<H', msg.payload[9:11])[0]
-            text = msg.payload[11:11+str_len].decode('utf-8')
-            
+            text = msg.payload[9:].split(b"\x00", 1)[0].decode('utf-8')
             self.append_log(severity, text)
         except Exception:
             pass

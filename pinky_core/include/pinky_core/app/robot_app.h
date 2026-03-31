@@ -16,7 +16,9 @@
 #include "pinky_core/core/battery_monitor.h"
 #include "pinky_core/core/led_controller.h"
 #include "pinky_core/core/lidar_processor.h"
+#ifdef PINKY_HAS_ONNXRUNTIME
 #include "pinky_core/inference/onnx_actor.h"
+#endif
 #include "pinky_core/inference/observation_builder.h"
 #include "pinky_core/inference/rl_controller.h"
 
@@ -67,11 +69,13 @@ class RobotApp {
   std::unique_ptr<FrameSender> frame_sender_;
 
   // Core & Inference
-  DiffDrive diff_drive_;
-  OdometryCalculator odom_calc_;
-  BatteryMonitor battery_monitor_;
-  LidarProcessor lidar_processor_;
+  DiffDrive diff_drive_{kWheelRadius, kWheelBase, kMaxRpm};
+  OdometryAccumulator odom_calc_{kWheelRadius, kWheelBase, kEncoderPpr};
+  BatteryMonitor battery_monitor_{kBattVMin, kBattVMax, kBattLowThresh};
+  LidarProcessor lidar_processor_{kLidarSectors, kMaxLidarDist};
+#ifdef PINKY_HAS_ONNXRUNTIME
   std::unique_ptr<OnnxActor> onnx_actor_;
+#endif
   ObservationBuilder obs_builder_;
   RlController rl_controller_;
 

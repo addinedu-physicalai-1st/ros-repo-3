@@ -45,3 +45,33 @@ class MsgType(IntEnum):
     PONG = 0x30
     ACK = 0x31
     MAP_DATA = 0x32
+
+
+# ---------------------------------------------------------------------------
+# Module-level aliases (used by net/ and workers/ code as mt.MSG_*)
+# ---------------------------------------------------------------------------
+MSG_ODOM = MsgType.ODOM
+MSG_IMU = MsgType.IMU
+MSG_LIDAR_SCAN = MsgType.LIDAR_SCAN
+MSG_LIDAR_24 = MsgType.LIDAR_24
+MSG_BATTERY = MsgType.BATTERY
+MSG_JOINT_STATE = MsgType.JOINT_STATE
+MSG_CAMERA_FRAME = MsgType.CAMERA_FRAME
+MSG_DEBUG_LOG = MsgType.DEBUG_LOG
+MSG_LOG = MsgType.DEBUG_LOG  # convenience alias
+MSG_IR_SENSOR = MsgType.IR_SENSOR
+MSG_US_SENSOR = MsgType.US_SENSOR
+MSG_ROBOT_STATUS = MsgType.ROBOT_STATUS
+MSG_CMD_VEL = MsgType.CMD_VEL
+MSG_SET_LED = MsgType.SET_LED
+MSG_SET_LAMP = MsgType.SET_LAMP
+MSG_SET_EMOTION = MsgType.SET_EMOTION
+MSG_SET_BRIGHTNESS = MsgType.SET_BRIGHTNESS
+MSG_NAV_GOAL = MsgType.NAV_GOAL
+MSG_NAV_CANCEL = MsgType.NAV_CANCEL
+MSG_SET_POSE = MsgType.SET_POSE
+MSG_PING = MsgType.PING
+MSG_REQUEST_MAP = MsgType.REQUEST_MAP
+MSG_PONG = MsgType.PONG
+MSG_ACK = MsgType.ACK
+MSG_MAP_DATA = MsgType.MAP_DATA

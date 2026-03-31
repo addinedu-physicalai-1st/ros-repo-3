@@ -77,9 +77,9 @@ bool UdpServer::Send(const std::vector<uint8_t>& data) {
                         reinterpret_cast<struct sockaddr*>(&target), sizeof(target));
   if (sent < 0) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      // Buffer full; normally ignore for UDP sensor drops
       return false;
     }
+    std::cerr << "UdpServer: sendto failed: " << strerror(errno) << "\n";
     return false;
   }
   return true;

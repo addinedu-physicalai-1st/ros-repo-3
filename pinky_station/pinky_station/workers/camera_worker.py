@@ -16,8 +16,9 @@ class CameraWorker(QThread):
         def cb(msg: ParsedMessage):
             from pinky_station.protocol import message_types as mt
             if msg.msg_type == mt.MSG_CAMERA_FRAME:
-                # payload = width(2) + height(2) + jpeg_bytes
-                jpeg_data = msg.payload[4:]
+                # payload = width(u16) + height(u16) + size(u32) + jpeg_bytes
+                # Header is <HHI = 2+2+4 = 8 bytes
+                jpeg_data = msg.payload[8:]
                 self.sig_frame.emit(jpeg_data)
                 
             if old_cb:

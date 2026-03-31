@@ -22,11 +22,8 @@ class BatteryWidget(QGroupBox):
         
     def update_status(self, msg: ParsedMessage):
         try:
-            # Expected format based on typical ROS2 BatteryState logic we used:
-            # <QffB : stamp(uint64), voltage(float32), percentage(float32), status(uint8)
-            # In types.h: uint64_t stamp, float voltage, float percentage, uint8_t status
-            unpacked = struct.unpack('<QffB', msg.payload[:17]) # 8+4+4+1 = 17
-            stamp, voltage, percentage, status = unpacked
+            # C++ SerializeBattery: voltage(f32) + percentage(f32) + status(u8) = 9 bytes
+            voltage, percentage, status = struct.unpack('<ffB', msg.payload[:9])
             
             # Map voltage correctly (assuming 12V system or 8.4V system)
             pct = int(max(0, min(percentage, 100)))

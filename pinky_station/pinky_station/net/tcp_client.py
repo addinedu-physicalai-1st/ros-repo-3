@@ -1,4 +1,5 @@
 import socket
+import struct
 import threading
 import time
 from typing import Callable, Optional
@@ -95,8 +96,7 @@ class TcpClient:
                             # If it's a PING, respond with PONG immediately
                             if msg.msg_type == mt.MSG_PING:
                                 try:
-                                    import struct
-                                    client_ts, = struct.unpack('<Q', msg.payload)
+                                    client_ts = struct.unpack('<Q', msg.payload)[0]
                                     server_ts = time.time_ns()
                                     pong_payload = struct.pack('<QQ', client_ts, server_ts)
                                     self.send_message(mt.MSG_PONG, pong_payload)
@@ -125,9 +125,8 @@ class TcpClient:
     def _ping_loop(self):
         while self._running:
             try:
-                # Send MSG_PING every 2 seconds
                 ts = time.time_ns()
-                payload = self.serializer.serialize_ping(ts)
+                payload = struct.pack('<Q', ts)
                 self.send_message(mt.MSG_PING, payload)
             except Exception:
                 pass

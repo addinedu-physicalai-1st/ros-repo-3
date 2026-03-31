@@ -95,11 +95,9 @@ void ConnectionManager::WatcherLoop() {
     
     for (int fd : timeouts) {
       std::cerr << "ConnectionManager: Client " << fd << " ping timeout. Disconnecting.\n";
-      // This will indirectly trigger OnClientDisconnected via TcpServer when we disconnect it.
-      // But TcpServer has no explicit cross-thread Disconnect method yet.
-      // It is safe to just stop acknowledging, or if TcpServer had a Disc method we'd call it.
-      // For now, we consider them dead. We'll add pseudo-disconnect:
-      OnClientDisconnected(fd);
+      // Close the socket at TcpServer level; this triggers the connection callback
+      // which calls OnClientDisconnected to clean up our session state.
+      if (tcp_) tcp_->ForceDisconnect(fd);
     }
   }
 }

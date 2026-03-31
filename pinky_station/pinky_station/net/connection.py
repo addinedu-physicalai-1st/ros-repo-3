@@ -68,7 +68,8 @@ class ConnectionManager:
 
     def send_cmd_vel(self, linear_x: float, angular_z: float):
         if self.tcp and self._state == ConnectionState.CONNECTED:
-            payload = self.tcp.serializer.serialize_cmd_vel(linear_x, angular_z)
+            import struct
+            payload = struct.pack('<ff', linear_x, angular_z)
             from pinky_station.protocol import message_types as mt
             self.tcp.send_message(mt.MSG_CMD_VEL, payload)
 

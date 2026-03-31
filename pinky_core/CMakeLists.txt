@@ -122,7 +122,7 @@ if(BUILD_HAL)
       ${RPLIDAR_SDK_DIR}/sdk/src
     )
     # The static library name and release path for aarch64 gcc
-    file(GLOB RPLIDAR_LIB_PATH "${RPLIDAR_SDK_DIR}/sdk/output/Linux/Release/libsl_lidar_sdk.a")
+    file(GLOB RPLIDAR_LIB_PATH "${RPLIDAR_SDK_DIR}/output/Linux/Release/libsl_lidar_sdk.a")
     target_link_libraries(pinky_hal PUBLIC pinky_core dynamixel_sdk wiringPi ws2811 ${RPLIDAR_LIB_PATH} pthread)
   else()
     message(WARNING "RPLIDAR SDK not found. Lidar node will fail to compile. Please install in pinky_devices!")

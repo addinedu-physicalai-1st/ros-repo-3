@@ -3,6 +3,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <unistd.h>
 
 #include "wiringPiI2C.h"
 
@@ -13,9 +14,10 @@ using namespace std::chrono_literals;
 Bno055Imu::Bno055Imu(const Config& config) : config_(config) {}
 
 Bno055Imu::~Bno055Imu() {
-  // Can close fd if using open(), but wiringPiI2C uses standard Linux open
-  // WiringPi doesn't have an explicit close, but we can close it manually if needed.
-  // Not strictly necessary since we exit or keep it open.
+  if (fd_ >= 0) {
+    close(fd_);
+    fd_ = -1;
+  }
 }
 
 bool Bno055Imu::Init() {
