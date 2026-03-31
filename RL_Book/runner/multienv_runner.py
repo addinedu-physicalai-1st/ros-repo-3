@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ray
+import numpy as np
 from copy import deepcopy
 from typing import List, Dict
 from utils.logging import Logger
@@ -122,14 +123,14 @@ class MultiEnvRunner(Runner):
                 merged_results = deepcopy(result)
                 for key, value in result.items():
                     # 각 항목 별로 값의 타입 확인
-                    if not isinstance(value, (int, float)):
+                    if not isinstance(value, (int, float, np.number)):
                         # 숫자가 아니면 리스트로 변경
                         merged_results[key] = [value]
                 continue
             # 2. 두 번째 이후 실행 결과
             for key, value in result.items():
                 # 각 항목 별로 값의 타입 확인
-                if isinstance(value, (int, float)):
+                if isinstance(value, (int, float, np.number)):
                     # 1) 숫자면 합산
                     merged_results[key] += value
                 else:

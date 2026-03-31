@@ -21,6 +21,7 @@ from typing import Callable, List
 from types import SimpleNamespace
 from torch.distributions import Normal, Categorical
 
+
 def orthogonal_init(module, activation="tanh"):
     """
         가중치 직교 초기화 (Orthogonal Initialization)
@@ -43,13 +44,14 @@ def orthogonal_init(module, activation="tanh"):
 class MLP(nn.Module):
     """순방향 신경망 클래스."""
 
-    def __init__(self,
-                 config: SimpleNamespace,
-                 input_size: int,
-                 layer_sizes: List[int],
-                 activation: Callable[[torch.Tensor],torch.Tensor] = nn.ReLU,
-                 output_activation: Callable[[torch.Tensor],torch.Tensor]
-                 = nn.Identity):
+    def __init__(
+        self,
+        config: SimpleNamespace,
+        input_size: int,
+        layer_sizes: List[int],
+        activation: Callable[[torch.Tensor], torch.Tensor] = nn.ReLU,
+        output_activation: Callable[[torch.Tensor], torch.Tensor] = nn.Identity,
+    ):
         """
             각 계층의 뉴런 수와 활성 함수를 전달받아서 MLP를 구성
         Args:
@@ -72,8 +74,7 @@ class MLP(nn.Module):
         # 3. MLP 계층 생성
         layers = []
         for output_size, activation in zip(layer_sizes, activations):
-            layer = nn.Sequential(nn.Linear(input_size, output_size),
-                                  activation())
+            layer = nn.Sequential(nn.Linear(input_size, output_size), activation())
             layers.append(layer)
             input_size = output_size
         self.layers = nn.Sequential(*layers)
@@ -100,9 +101,10 @@ class MLP(nn.Module):
 
 class Policy(abc.ABC):
     """정책 클래스의 최상위 클래스."""
+
     # 상태외 행동의 크기 변수 선언
-    state_size = 0      # 상태 크기
-    action_size = 0     # 행동 크기
+    state_size = 0  # 상태 크기
+    action_size = 0  # 행동 크기
 
 
 class StochasticPolicy(Policy):
@@ -170,9 +172,9 @@ class CategoricalPolicy(StochasticPolicy):
             action = distribution.probs.argmax(dim=-1, keepdim=True)
         return action
 
+
 class GaussianPolicy(StochasticPolicy):
     """가우시안 분포를 출력하는 정책."""
-
 
     def distribution(self, state):
         """
@@ -224,11 +226,13 @@ class GaussianPolicy(StochasticPolicy):
 class CategoricalPolicyMLP(MLP, CategoricalPolicy):
     """카테고리 분포를 출력하는 MLP 정책."""
 
-    def __init__(self,
-                 config: SimpleNamespace,
-                 state_size: int,
-                 hidden_dims: List[int],
-                 action_size: int):
+    def __init__(
+        self,
+        config: SimpleNamespace,
+        state_size: int,
+        hidden_dims: List[int],
+        action_size: int,
+    ):
         """
             모델 정보를 입력 받아서 MLP를 구성
         Args:
@@ -242,11 +246,13 @@ class CategoricalPolicyMLP(MLP, CategoricalPolicy):
         layer_sizes = hidden_dims + [action_size]
 
         # 2. MLP 생성
-        super().__init__(config,
-                         state_size,
-                         layer_sizes,
-                         activation=nn.Tanh,
-                         output_activation=nn.Identity)
+        super().__init__(
+            config,
+            state_size,
+            layer_sizes,
+            activation=nn.Tanh,
+            output_activation=nn.Identity,
+        )
 
         # 3. 전달 받은 인자 저장
         self.state_size = state_size
@@ -278,12 +284,14 @@ class CategoricalPolicyMLP(MLP, CategoricalPolicy):
 class GaussianPolicyMLP(MLP, GaussianPolicy):
     """가우시안 분포를 출력하는 MLP 정책."""
 
-    def __init__(self,
-                 config: SimpleNamespace,
-                 state_size: int,
-                 hidden_dims: List[int],
-                 action_size: int,
-                 log_std_init: float = 0.0):
+    def __init__(
+        self,
+        config: SimpleNamespace,
+        state_size: int,
+        hidden_dims: List[int],
+        action_size: int,
+        log_std_init: float = 0.0,
+    ):
         """
             모델 정보를 입력 받아서 MLP를 구성하고
             가우시안 분포의 평균을 출력하는 해드와
@@ -307,8 +315,9 @@ class GaussianPolicyMLP(MLP, GaussianPolicy):
         self.mean_head = nn.Linear(hidden_dims[-1], self.action_size)
 
         # 4. 로그 표준편차 파라미터 정의
-        self.log_std = nn.Parameter(torch.ones(self.action_size) * log_std_init,
-                                    requires_grad=True)
+        self.log_std = nn.Parameter(
+            torch.ones(self.action_size) * log_std_init, requires_grad=True
+        )
 
         # 5. 모델 파라미터 초기화
         self.apply(orthogonal_init)
@@ -355,10 +364,9 @@ class ActionValueFunction(ValueFunction):
 class ValueFunctionMLP(MLP, StateValueFunction):
     """상태 기반의 가치 함수 클래스 (A2C, PPO에서 사용)"""
 
-    def __init__(self,
-                 config: SimpleNamespace,
-                 state_size: int,
-                 hidden_dims: List[int]):
+    def __init__(
+        self, config: SimpleNamespace, state_size: int, hidden_dims: List[int]
+    ):
         """
             모델 정보를 입력 받아서 MLP를 구성
         Args:
@@ -390,13 +398,17 @@ class ValueFunctionMLP(MLP, StateValueFunction):
         # MLP 계층 별 실행
         return super().forward(state)
 
+
 class QFunctionMLP(MLP, ActionValueFunction):
     """상태와 행동을 입력 받아서 Q-가치를 출력하는 Q 가치 함수 클래스."""
-    def __init__(self,
-                 config: SimpleNamespace,
-                 state_size: int,
-                 action_size: int,
-                 hidden_dims: List[int]):
+
+    def __init__(
+        self,
+        config: SimpleNamespace,
+        state_size: int,
+        action_size: int,
+        hidden_dims: List[int],
+    ):
         """
             모델 정보를 입력 받아서 MLP를 구성
         Args:
@@ -440,14 +452,17 @@ class QFunctionMLP(MLP, ActionValueFunction):
 
 class QFunctionMLPDQN(MLP, ActionValueFunction):
     """
-        상태를 입력하고 모든 이산 행동에 대한 Q 가치를 한꺼번에 출력하는 Q 가치 함수 클래스
-        (DQN, Double DQN에서 사용)
+    상태를 입력하고 모든 이산 행동에 대한 Q 가치를 한꺼번에 출력하는 Q 가치 함수 클래스
+    (DQN, Double DQN에서 사용)
     """
-    def __init__(self,
-                 config: SimpleNamespace,
-                 state_size: int,
-                 action_size: int,
-                 hidden_dims: List[int]):
+
+    def __init__(
+        self,
+        config: SimpleNamespace,
+        state_size: int,
+        action_size: int,
+        hidden_dims: List[int],
+    ):
         """
             모델 정보를 입력 받아서 MLP를 구성한다.
         Args:

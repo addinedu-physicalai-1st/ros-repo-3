@@ -1,0 +1,67 @@
+################### Common Part
+use_cuda: True
+device_num: 0
+
+num_cpus: 1
+num_gpus: 1
+
+epsilon: 0.0000001
+optim_eps: 0.00001
+torch_deterministic: True
+
+# Environment
+env_wrapper: "pinky_sac"
+env_name: "PinkyPro-v0"
+n_envs: 1
+distributed_processing_type: "sync"
+
+# Rendering
+render: False
+
+# Inference
+training_mode: True
+inference_model_path: ""
+inference_max_episodes: 100
+
+# Logging
+log_interval: 2048
+use_tensorboard: True
+
+# Checkpoint
+save_model: True
+save_model_interval: 20000
+checkpoint_path: "results/pinky_sac/models/sac_PinkyPro-v0_2026-03-30_02-04-47"
+load_step: 409600
+local_results_path: "results/pinky_sac"
+
+################### Training Steps
+max_environment_steps: 2000000
+
+################### SAC Hyperparameters
+# Network
+hidden_dim: 256 # Actor & Critic MLP hidden dim
+
+# Replay Buffer
+replay_buffer_size: 500000 # 원래 버퍼 사이즈로 복구
+warmup_step: 0 # 랜덤 행동으로 버퍼 채우는 스텝
+
+# Training
+batch_size: 256 # 미니배치 크기
+update_every: 1 # 매 호출 시 학습
+updates_per_step: 4 # 버퍼가 비어있을 때 과적합 방지 (기존 2048 -> 4)
+gamma: 0.99 # 할인율
+soft_target_tau: 0.005 # Target Q EMA 계수
+target_entropy: -0.5 # 확신을 가진 행동 유도 (기존 -2.0 -> -0.5)
+
+# Learning Rates
+lr_actor: 0.00005 # 미세 조정(Fine-tuning)을 위한 낮은 학습률
+lr_critic: 0.00005 # 미세 조정을 위한 낮은 학습률
+lr_alpha: 0.00005 # Alpha (온도) 학습률
+
+# Gradient Clipping
+grad_norm_clip: 1.0
+
+# On-policy compatibility (Runner 호환용)
+n_steps: 2048 # Runner의 환경 루프 수집 단위
+n_episodes: 0
+n_epochs: 1

@@ -18,8 +18,11 @@ from agents.reinforce.reinforce import REINFORCE
 from agents.reinforce_b.reinforce_b import REINFORCEB
 from agents.a2c.a2c import A2C
 from agents.ppo.ppo import PPO
+from agents.rppo.rppo import RecurrentPPO
 from agents.dqn.dqn import DQN
 from agents.ddqn.ddqn import DDQN
+from agents.dreamer.dreamer import DreamerV3
+from agents.sac.sac import SAC
 
 # 에이전트 레지스트리
 REGISTRY = {}
@@ -29,3 +32,6 @@ REGISTRY["a2c"] = A2C                       # A2C 알고리즘
 REGISTRY["dqn"] = DQN                       # DQN 알고리즘
 REGISTRY["ddqn"] = DDQN                     # 더블 DQN 알고리즘
 REGISTRY["ppo"] = PPO                       # PPO 알고리즘
+REGISTRY["rppo"] = RecurrentPPO              # Recurrent PPO 알고리즘
+REGISTRY["dreamer"] = DreamerV3              # DreamerV3 알고리즘
+REGISTRY["sac"] = SAC                        # SAC 알고리즘

@@ -24,6 +24,7 @@ from utils.logging import Logger
 from datasets.buffer import Buffer
 from envs.environment import EnvironmentSpec
 
+
 class VariableSource(abc.ABC):
     """네트워크의 상태(파라미터와 버퍼)를 제공 인터페이스."""
 
@@ -54,13 +55,11 @@ class Saveable(abc.ABC):
 
 class Network(nn.Module, VariableSource, Saveable):
     """
-        정책과 가치 함수 모델을 통합적으로 관리하는
-        네트워크의 베이스 클래스.
+    정책과 가치 함수 모델을 통합적으로 관리하는
+    네트워크의 베이스 클래스.
     """
 
-    def __init__(self,
-                 config: SimpleNamespace,
-                 environment_spec: EnvironmentSpec):
+    def __init__(self, config: SimpleNamespace, environment_spec: EnvironmentSpec):
         """
             1) 정책과 가치 함수의 입출력 데이터인 상태와 행동의 크기를 계산
             2) 행동이 연속 행동인지 이산 행동인지 구분.
@@ -76,18 +75,16 @@ class Network(nn.Module, VariableSource, Saveable):
         self.environment_spec = environment_spec
 
         # 2. 연동 행동 여부
-        self.b_continuous_action = \
-            self.environment_spec.b_continuous_action
+        self.b_continuous_action = self.environment_spec.b_continuous_action
 
         # 3. 행동과 상태의 벡터 크기 계산
         self.action_size = self.environment_spec.action_size
-        self.state_size = \
-            np.array(self.environment_spec.state_spec.shape).prod()
+        self.state_size = np.array(self.environment_spec.state_spec.shape).prod()
 
     @abc.abstractmethod
-    def select_action(self,
-                      state: torch.Tensor,
-                      total_n_timesteps: int) -> torch.Tensor:
+    def select_action(
+        self, state: torch.Tensor, total_n_timesteps: int
+    ) -> torch.Tensor:
         """
             정책 또는 가치 함수를 통해 행동을 선택.
         Args:
@@ -110,9 +107,9 @@ class Network(nn.Module, VariableSource, Saveable):
         """
 
         # 1. 이산 행동: 1차원으로 변경
-        b_squeeze = self.b_continuous_action is False \
-                    and action.shape[-1] == 1
-        if b_squeeze: action = action.squeeze()
+        b_squeeze = self.b_continuous_action is False and action.shape[-1] == 1
+        if b_squeeze:
+            action = action.squeeze()
 
         # 2. 로그 가능도 계산
         if self.b_continuous_action:
@@ -120,7 +117,8 @@ class Network(nn.Module, VariableSource, Saveable):
         log_prob = distribution.log_prob(action)
 
         # 3. 차원 변경 시 원래 차원으로 복구
-        if b_squeeze: log_prob = log_prob.unsqueeze(-1)
+        if b_squeeze:
+            log_prob = log_prob.unsqueeze(-1)
 
         # 4. 로그 가능도 반환
         return log_prob
@@ -160,8 +158,10 @@ class Network(nn.Module, VariableSource, Saveable):
         """
 
         # 네트워크의 상태 복구
-        state_dict = torch.load("{}/network.th".format(checkpoint_path),
-                                map_location=torch.device(self.config.device))
+        state_dict = torch.load(
+            "{}/network.th".format(checkpoint_path),
+            map_location=torch.device(self.config.device),
+        )
         self.load_state_dict(state_dict)
 
     def get_variables(self) -> dict:
@@ -177,15 +177,17 @@ class Network(nn.Module, VariableSource, Saveable):
 
 class Learner(Saveable):
     """
-        정책을 평가하고 개선하기 위한 학습자의 베이스 클래스.
+    정책을 평가하고 개선하기 위한 학습자의 베이스 클래스.
     """
 
-    def __init__(self,
-                 config: SimpleNamespace,
-                 logger: Logger,
-                 environment_spec: EnvironmentSpec,
-                 network: Network,
-                 buffer: Buffer):
+    def __init__(
+        self,
+        config: SimpleNamespace,
+        logger: Logger,
+        environment_spec: EnvironmentSpec,
+        network: Network,
+        buffer: Buffer,
+    ):
         """
             1) 전달 받은 인자를 저장하고,
             2) 행동이 연속 행동인지 이산 행동인지 구분하며,
@@ -207,14 +209,13 @@ class Learner(Saveable):
         self.buffer = buffer
 
         # 2. 연동 행동 여부
-        self.b_continuous_action = \
-            self.environment_spec.b_continuous_action
+        self.b_continuous_action = self.environment_spec.b_continuous_action
 
         # 3. 학습 타입 스텝 초기화
         self.learner_step = 0
 
     @abc.abstractmethod
-    def update(self, total_n_timesteps: int, total_n_episodes:int) -> bool:
+    def update(self, total_n_timesteps: int, total_n_episodes: int) -> bool:
         """
             정책 평가 및 개선
         Args:
@@ -237,8 +238,7 @@ class Learner(Saveable):
         self.network.save(checkpoint_path)
 
         # 2. 옵티마이저 상태 저장
-        torch.save(self.optimizer.state_dict(),
-                   "{}/opt.th".format(checkpoint_path))
+        torch.save(self.optimizer.state_dict(), "{}/opt.th".format(checkpoint_path))
 
     def restore(self, checkpoint_path: str):
         """
@@ -253,5 +253,8 @@ class Learner(Saveable):
 
         # 2. 옵티마이저 상태 복구
         self.optimizer.load_state_dict(
-            torch.load("{}/opt.th".format(checkpoint_path),
-                       map_location=lambda storage, loc: storage))
+            torch.load(
+                "{}/opt.th".format(checkpoint_path),
+                map_location=lambda storage, loc: storage,
+            )
+        )

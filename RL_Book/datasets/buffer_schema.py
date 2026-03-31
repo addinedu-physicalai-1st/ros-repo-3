@@ -38,21 +38,22 @@ class BufferSchema():
 
         # 1. 전달 받은 인자 저장
         self.config = config
-        self.env = env
 
         # 2. 기본 스키마 생성
-        self.schema = self.create_default_schema() \
+        self.schema = self.create_default_schema(env) \
             if schema is None else schema
 
-    def create_default_schema(self):
+    def create_default_schema(self, env: Environment):
         """
             환경 정보를 이용해서 트랜지션을 저장하기 위한 기본 버퍼 스키마를 생성한다.
+        Args:
+            env: 환경
         Returns:
             버퍼 스키마 딕셔너리
         """
 
         # 1. 트랜지션 데이터 저장 버퍼 스키마 정의
-        env_spec = self.env.environment_spec()
+        env_spec = env.environment_spec()
         schema = {
             "state": {"shape": env_spec.state_spec.shape},                  # 상태
             "action": {"shape": env_spec.action_spec.shape,                 # 행동

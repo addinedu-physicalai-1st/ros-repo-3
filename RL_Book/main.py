@@ -23,37 +23,46 @@ import argparse
 from runner.runner import Runner
 from runner.multienv_runner import MultiEnvRunner
 from runner.multienv_async_runner import MultiEnvAsyncRunner
+from runner.dreamer_runner import DreamerRunner
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     # 1. 명령어 인자 파서 생성
-    desc = 'RL Framework'
+    desc = "RL Framework"
     parser = argparse.ArgumentParser(description=desc)
 
     # 2. 에이전트 이름 인자 추가
-    parser.add_argument('-a',
-                        '--agent',
-                        help='agent name {'
-                             'reinforce, '
-                             'reinforce_b, '
-                             'a2c, '
-                             'dqn, '
-                             'ddqn, '
-                             'ppo, '
-                             '}',
-                        type=str,
-                        default='reinforce')
+    parser.add_argument(
+        "-a",
+        "--agent",
+        help="agent name {"
+        "reinforce, "
+        "reinforce_b, "
+        "a2c, "
+        "dqn, "
+        "ddqn, "
+        "ppo, "
+        "rppo, "
+        "dreamer, "
+        "sac, "
+        "}",
+        type=str,
+        default="reinforce",
+    )
 
     # 3. 환경 이름 인자 추가
-    parser.add_argument('-e',
-                        '--env',
-                         help='run type {'
-                              'CartPole-v1, '
-                              'LunarLanderContinuous-v3, '
-                              'Acrobot-v1, '
-                              'AntBulletEnv-v0}',
-                         type=str,
-                         default='CartPole-v1')
+    parser.add_argument(
+        "-e",
+        "--env",
+        help="run type {"
+        "CartPole-v1, "
+        "LunarLanderContinuous-v3, "
+        "Acrobot-v1, "
+        "AntBulletEnv-v0, "
+        "PinkyPro-v0}",
+        type=str,
+        default="CartPole-v1",
+    )
 
     # 4. 명령어 인자 파싱
     args = parser.parse_args()
@@ -74,18 +83,22 @@ if __name__ == '__main__':
     config: dict = cu.config_copy(cu.get_config(agent_name, env_name))
 
     # 9. 설정 값 추가
-    config['agent'] = agent_name                # 에이전트 이름 추가
-    config['env_name'] = env_name               # 환경 이름 추가
-    config['random_seed'] = random_seed         # 난수발생기 씨드 추가
-    if config.get('env_args', None) is None:    # 환경 인자 기본값 처리
-        config['env_args'] = {}
+    config["agent"] = agent_name  # 에이전트 이름 추가
+    config["env_name"] = env_name  # 환경 이름 추가
+    config["random_seed"] = random_seed  # 난수발생기 씨드 추가
+    if config.get("env_args", None) is None:  # 환경 인자 기본값 처리
+        config["env_args"] = {}
 
     # 10. 러너 클래스 선택
-    config['distributed_processing_type'] = \
-        config.get('distributed_processing_type',"sync")
-    if config['n_envs'] == 1:
+    config["distributed_processing_type"] = config.get(
+        "distributed_processing_type", "sync"
+    )
+    if agent_name == "dreamer":
+        # DreamerV3: 전용 러너 사용
+        RunnerClass = DreamerRunner
+    elif config["n_envs"] == 1:
         RunnerClass = Runner
-    elif config['distributed_processing_type'] == "sync":
+    elif config["distributed_processing_type"] == "sync":
         RunnerClass = MultiEnvRunner
     else:
         RunnerClass = MultiEnvAsyncRunner

@@ -1,0 +1,80 @@
+################### Phase 2: 장애물 회피 학습 설정
+# GPU 가속 강제 (RTX 4060)
+use_cuda: True
+device_num: 0
+
+# 하이퍼파라미터 안정성
+epsilon: 0.0000001
+optim_betas: [0.9, 0.999]
+optim_eps: 0.00001
+torch_deterministic: True
+
+# Environment (Phase 2 장애물 회피 전용 래퍼)
+env_wrapper: "pinky_avoid"
+env_name: "PinkyAvoid-v0"
+n_envs: 1
+distributed_processing_type: "sync"
+
+# Rendering
+render: False
+
+# Inference
+training_mode: True
+inference_model_path: ""
+inference_max_episodes: 100
+
+# Logging
+log_interval: 2048
+use_tensorboard: True
+
+# Checkpoint
+save_model: True
+save_model_interval: 100000
+checkpoint_path: ""
+load_step: 0
+local_results_path: "results/pinky_avoid"
+
+################### Training Part
+# Training Steps
+max_environment_steps: 3000000 # 단순 태스크이므로 300만 스텝이면 충분
+n_steps: 2048
+n_episodes: 0
+n_epochs: 10
+batch_size: 128 # 2D 액션에 맞게 축소
+
+# Learning Rate
+lr_policy: 0.0003 # 안정적 수렴
+lr_critic: 0.001
+
+# Learning Rate Annealing
+lr_annealing: True
+
+# Epsilon greedy
+epsilon_greedy: False
+
+# Warming Up
+warmup_step: 0
+
+# Gradient Clipping
+grad_norm_clip: 0.5
+
+# PPO Clipping
+ppo_clipping_epsilon: 0.2 # Phase 2는 단순하므로 넓은 탐색 허용
+clip_schedule: True
+
+# Discount factor
+gamma: 0.99
+
+# Return and Advantage
+advantage_type: "gae"
+return_standardization: True
+gae_standardization: True
+gae_lambda: 0.95
+
+# Loss coefficients
+vloss_coef: 0.5
+eloss_coef: 0.01
+
+# Network Hidden dims (2D 액션 + 26D 상태에 적합한 경량 네트워크)
+actor_hidden_dims: [64, 64]
+critic_hidden_dims: [64, 64]

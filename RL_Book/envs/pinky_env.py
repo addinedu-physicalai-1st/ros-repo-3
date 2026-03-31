@@ -36,15 +36,25 @@ class PinkyNode(Node):
 
     def scan_callback(self, msg):
         ranges = np.array(msg.ranges)
-        ranges[np.isinf(ranges)] = self.MAX_LIDAR_DIST
-        ranges[np.isnan(ranges)] = self.MAX_LIDAR_DIST
+        
+        # Gazebo에서 너무 가까운 경우 NaN이나 음의 무한대가 나올 수 있음
+        ranges[np.isnan(ranges)] = 0.0
+        ranges[np.isposinf(ranges)] = self.MAX_LIDAR_DIST
+        ranges[np.isneginf(ranges)] = 0.0
 
         n = len(ranges)
         ranges = np.roll(ranges, n // 2)
-        indices = np.linspace(0, n - 1, 24, dtype=int)
+        
+        # 단순 추출 대신 24개 구간별 최솟값(min) 추출
+        sector_size = max(1, n // 24)
+        min_ranges = np.zeros(24)
+        for i in range(24):
+            start_idx = i * sector_size
+            end_idx = start_idx + sector_size if i < 23 else n
+            min_ranges[i] = np.min(ranges[start_idx:end_idx])
 
         # 0 ~ 1.0 사이로 정규화하여 저장
-        self.scan_data = ranges[indices] / self.MAX_LIDAR_DIST
+        self.scan_data = min_ranges / self.MAX_LIDAR_DIST
 
     def odom_callback(self, msg):
         self.current_v = msg.twist.twist.linear.x
@@ -358,7 +368,7 @@ class PinkyNavEnv(Environment):
         self.prev_distance = distance
 
         # ── 3. 종료 조건 및 패널티 ──
-        if distance < 0.35:  # 목표 도달 (성공)
+        if distance < 0.15:  # 목표 도달 (성공)
             reward = 100.0
             terminated = True
             self._term_reason = "goal"

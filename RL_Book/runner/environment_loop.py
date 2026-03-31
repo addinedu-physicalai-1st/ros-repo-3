@@ -124,9 +124,13 @@ class EnvironmentLoop:
             next_state, reward, done, env_info = self.env.step(action)
 
             # 5. 트랜지션 데이터 관측
+            # 버퍼의 done: terminated만 사용 (truncated는 GAE에서 V(s') 부트스트랩 유지)
+            # env_info에 'terminated' 키가 없으면 기존 done을 그대로 사용 (하위 호환)
+            done_for_buffer = env_info.get('terminated', done) \
+                if isinstance(env_info, dict) else done
             # 상호작용 이후 트랜지션 데이터
             post_transition_data = \
-                self.post_transition_data(action, reward, next_state, done)
+                self.post_transition_data(action, reward, next_state, done_for_buffer)
             # 트랜지션 데이터 생성
             transition_data = {**pre_transition_data, **post_transition_data}
             # 액터의 롤아웃버퍼에 트랜지션 데이터 저장
@@ -139,7 +143,7 @@ class EnvironmentLoop:
             self.n_timesteps_in_envloop += 1    # 환경 루프 타입 스텝 수
             self.n_timesteps_in_run += 1        # 런 메서드 타입 스텝 수
             self.n_timesteps_in_episode += 1    # 에피소드 타입 스텝 수
-            self.return_in_episode += reward    # 에피소드 리턴 계산
+            self.return_in_episode += float(reward)    # 에피소드 리턴 계산
 
             # 7. 에피소드 종료 처리
             if done:

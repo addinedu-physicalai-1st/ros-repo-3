@@ -1,0 +1,84 @@
+################### Common Part
+# GPU 가속 강제
+use_cuda: True
+device_num: 0
+
+# Ray 분산 처리 자원 (1 로봇 기본)
+num_cpus: 1
+num_gpus: 1
+
+# 하이퍼파라미터 안정성
+epsilon: 0.0000001
+optim_betas: [0.9, 0.999]
+optim_eps: 0.00001
+torch_deterministic: True
+
+# Environment
+env_wrapper: "pinky_rppo"
+env_name: "PinkyPro-v0"
+n_envs: 1
+distributed_processing_type: "sync"
+
+# Rendering
+render: False
+
+# Inference
+training_mode: True
+inference_model_path: ""
+inference_max_episodes: 100
+
+# Logging options
+log_interval: 1024
+use_tensorboard: True
+
+# Checkpoint
+save_model: True
+save_model_interval: 20000
+checkpoint_path: ""
+load_step: 0
+local_results_path: "results/pinky_rppo"
+
+################### Training Part
+# Training Steps
+max_environment_steps: 5000000
+n_steps: 2048
+n_episodes: 0
+n_epochs: 3
+batch_size: 512
+
+# Recurrent Parameters
+gru_hidden_dim: 128
+feature_dim: 128
+recurrent_chunk_length: 64 # [상향] 우회 기동(Detour) 시 시계열 맥락(Temporal Context) 확보를 위해 32->64 상향
+
+# Learning Rate
+lr_policy: 0.0005 # [상향] 학습 속도 가속화를 위해 0.00025->0.0005 상향
+lr_critic: 0.001
+lr_annealing: True
+
+# Warming Up step
+warmup_step: 0
+
+# Gradient Clipping
+grad_norm_clip: 0.5
+
+# PPO Clipping
+ppo_clipping_epsilon: 0.2
+clip_schedule: True
+
+# discount factor
+gamma: 0.99
+
+# Return and Advantage
+advantage_type: "gae"
+return_standardization: True
+gae_standardization: True
+gae_lambda: 0.95
+
+# loss
+vloss_coef: 0.5
+eloss_coef: 0.05 # [수정] 0.03 -> 0.05: GRU 회전 고착 방지를 위해 탐색 강화
+
+# Network Hidden dims
+actor_hidden_dims: [128, 128]
+critic_hidden_dims: [128, 128]

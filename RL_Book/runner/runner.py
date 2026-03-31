@@ -423,11 +423,18 @@ class Runner:
             if os.path.isdir(full_name) and name.isdigit():
                 timesteps.append(int(name))
 
-        # 3. 복구할 타입 스텝이 0이면 마지막 체크포인트로 복구
+        # 3. 복구할 체크포인트가 없는 경우
+        if not timesteps:
+            self.logger.console_logger.info(
+                "No checkpoints found in {}".format(self.config.checkpoint_path)
+            )
+            return False
+
+        # 4. 복구할 타입 스텝이 0이면 마지막 체크포인트로 복구
         if self.config.load_step == 0:
             timestep_to_load = max(timesteps)
         else:
-            # 4. 복구할 타입 스텝이 0이 아니면 가장 가까운 체크포인트로 복구
+            # 5. 복구할 타입 스텝이 0이 아니면 가장 가까운 체크포인트로 복구
             timestep_to_load = min(
                 timesteps, key=lambda x: abs(x - self.config.load_step)
             )

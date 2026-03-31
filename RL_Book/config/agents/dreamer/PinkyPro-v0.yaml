@@ -1,0 +1,97 @@
+################### Common Part
+# GPU 가속 강제
+use_cuda: True
+device_num: 0
+
+# Ray 분산 처리 자원 (1 로봇 기본)
+num_cpus: 1
+num_gpus: 1
+
+# 하이퍼파라미터 안정성
+epsilon: 0.0000001
+optim_eps: 0.00001
+torch_deterministic: True
+
+# Environment
+env_wrapper: "pinky_dreamer"
+env_name: "PinkyPro-v0"
+n_envs: 1
+distributed_processing_type: "sync"
+
+# Rendering
+render: False
+
+# Inference
+training_mode: True
+inference_model_path: ""
+inference_max_episodes: 100
+
+# Logging options
+log_interval: 5000
+use_tensorboard: True
+
+# Checkpoint
+save_model: True
+save_model_interval: 50000
+checkpoint_path: ""
+load_step: 0
+local_results_path: "results/pinky_dreamer"
+
+################### DreamerV3 Architecture
+# 모델 크기 (Proprio Control, 12M 기준)
+hidden_dim: 256          # MLP hidden dimension
+gru_units: 1024          # GRU recurrent state dimension
+num_latents: 32          # Categorical latent 변수 수
+num_classes: 16          # 각 latent의 클래스 수 (32×16=512D)
+num_bins: 255            # Twohot 분포 bin 수
+unimix: 0.01             # 1% uniform mixing (확률 0 방지)
+
+# Actor/Critic
+actor_layers: 3          # Actor MLP 층 수
+critic_layers: 3         # Critic MLP 층 수
+min_std: 0.1             # 최소 행동 표준편차
+max_std: 1.0             # 최대 행동 표준편차
+slow_target_tau: 0.02    # Slow critic EMA 계수
+
+################### Training Part
+# Training Steps
+max_environment_steps: 5000000
+
+# Replay Buffer
+replay_buffer_size: 500000    # 최대 트랜지션 수
+max_episodes: 2000            # 최대 에피소드 수
+
+# Sequence Sampling
+seq_len: 64              # 시퀀스 길이 (world model 학습용)
+batch_size: 16           # 배치 크기
+
+# Training Frequency
+warmup_step: 5000        # 랜덤 행동으로 버퍼 채우는 스텝 수
+train_every: 16           # 환경 N 스텝마다 학습 (5→16: 학습 오버헤드 감소)
+train_steps: 1           # 학습 시 반복 횟수
+
+# Imagination
+imagine_horizon: 15      # 상상 궤적 길이
+
+# Learning Rates
+lr_world: 0.0001         # World model 학습률
+lr_actor: 0.00003        # Actor 학습률
+lr_critic: 0.00003       # Critic 학습률
+
+# Discount Factor
+gamma: 0.997             # 할인율 (DreamerV3 기본: 0.997)
+lambda_gae: 0.95         # λ-return 계수
+
+# KL Balancing
+kl_beta_dyn: 1.0         # KL dynamics loss 가중치
+kl_beta_rep: 0.1         # KL representation loss 가중치
+free_nats: 1.0           # Free bits (nats)
+
+# Loss Scales
+decoder_loss_scale: 1.0  # 관측 복원 loss 가중치
+reward_loss_scale: 1.0   # 보상 예측 loss 가중치
+continue_loss_scale: 1.0 # Continue 예측 loss 가중치
+entropy_coef: 0.0003     # Actor 엔트로피 보너스
+
+# Gradient Clipping
+grad_norm_clip: 100.0    # Gradient norm clipping

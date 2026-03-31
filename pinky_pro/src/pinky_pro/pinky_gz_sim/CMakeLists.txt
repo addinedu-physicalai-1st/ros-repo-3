@@ -33,7 +33,14 @@ install(
     models
     launch
     params
+    scripts
   DESTINATION share/${PROJECT_NAME}
+)
+
+# start_sim.sh 실행 권한 부여
+install(
+  PROGRAMS scripts/start_sim.sh
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 install(

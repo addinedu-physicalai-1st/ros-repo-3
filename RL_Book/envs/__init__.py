@@ -15,7 +15,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from envs.opengym import OpenGym
+from envs.pinky_env import PinkyNavEnv
+from envs.pinky_rppo_env import PinkyRppoEnv
+from envs.pinky_dreamer_env import PinkyDreamerEnv
+from envs.pinky_sac_env import PinkySacEnv
 
 # 환경 클래스 레지스트리
 REGISTRY = {}
 REGISTRY["opengym"] = OpenGym
+REGISTRY["pinky"] = PinkyNavEnv
+REGISTRY["pinky_rppo"] = PinkyRppoEnv
+REGISTRY["pinky_dreamer"] = PinkyDreamerEnv
+REGISTRY["pinky_sac"] = PinkySacEnv
