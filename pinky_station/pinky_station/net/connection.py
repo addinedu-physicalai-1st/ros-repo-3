@@ -12,11 +12,11 @@ class ConnectionState(Enum):
     CONNECTED = 2
 
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self, tcp_port: int = 9100, udp_port: int = 9200):
         self._state = ConnectionState.DISCONNECTED
         self._host = ""
-        self._tcp_port = 9100
-        self._udp_port = 9200
+        self._tcp_port = tcp_port
+        self._udp_port = udp_port
         
         self.tcp: Optional[TcpClient] = None
         self.udp: Optional[UdpReceiver] = None

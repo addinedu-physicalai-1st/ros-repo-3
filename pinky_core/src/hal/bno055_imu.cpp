@@ -79,13 +79,11 @@ bool Bno055Imu::ReadData(ImuData& data) {
   data.linear_acceleration.y = static_cast<int16_t>((buffer[3] << 8) | buffer[2]) / 100.0;
   data.linear_acceleration.z = static_cast<int16_t>((buffer[5] << 8) | buffer[4]) / 100.0;
 
-  // Angular velocity (rad/s or deg/s?) Original says /16.0 
-  // BNO055 default output is in dps/16.0. If we need rad/s, we should convert later.
-  // Let's stick to original node logic for now, but commonly ROS Imus expect rad/s.
-  // Assuming the node returned dps and we keep the same:
-  data.angular_velocity.x = static_cast<int16_t>((buffer[13] << 8) | buffer[12]) / 16.0;
-  data.angular_velocity.y = static_cast<int16_t>((buffer[15] << 8) | buffer[14]) / 16.0;
-  data.angular_velocity.z = static_cast<int16_t>((buffer[17] << 8) | buffer[16]) / 16.0;
+  // Angular velocity: BNO055 returns 1 LSB = 1/16 dps. Convert to rad/s.
+  constexpr double kDpsToRads = 3.14159265358979323846 / 180.0;
+  data.angular_velocity.x = static_cast<int16_t>((buffer[13] << 8) | buffer[12]) / 16.0 * kDpsToRads;
+  data.angular_velocity.y = static_cast<int16_t>((buffer[15] << 8) | buffer[14]) / 16.0 * kDpsToRads;
+  data.angular_velocity.z = static_cast<int16_t>((buffer[17] << 8) | buffer[16]) / 16.0 * kDpsToRads;
 
   // Quaternion - Register 0x20
   data.orientation.w = static_cast<int16_t>((buffer[25] << 8) | buffer[24]) / 16384.0;

@@ -27,6 +27,12 @@ bool UdpServer::Start() {
   int flags = fcntl(socket_fd_, F_GETFL, 0);
   fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
 
+  int opt = 1;
+  setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#ifdef SO_REUSEPORT
+  setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+#endif
+
   // Bind to allow receiving if needed
   sockaddr_in addr{};
   addr.sin_family = AF_INET;

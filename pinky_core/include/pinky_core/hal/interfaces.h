@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "pinky_core/common/types.h"
 
@@ -46,6 +47,15 @@ class ILedDriver {
   virtual void SetPixel(int index, uint8_t r, uint8_t g, uint8_t b) = 0;
   virtual void Show() = 0;
   virtual void Clear() = 0;
+};
+
+class ICameraDriver {
+ public:
+  virtual ~ICameraDriver() = default;
+  virtual bool Init() = 0;
+  // Capture a JPEG frame. Returns false if capture failed.
+  virtual bool CaptureJpeg(std::vector<uint8_t>& jpeg_out,
+                           uint16_t& width, uint16_t& height) = 0;
 };
 
 class ILcdDriver {

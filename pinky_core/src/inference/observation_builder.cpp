@@ -4,6 +4,9 @@
 
 namespace pinky {
 
+ObservationBuilder::ObservationBuilder(float goal_dist_scale, int max_steps)
+    : goal_dist_scale_(goal_dist_scale), max_steps_(max_steps) {}
+
 void ObservationBuilder::SetGoal(float goal_x, float goal_y) {
   goal_x_ = goal_x;
   goal_y_ = goal_y;
@@ -25,13 +28,13 @@ std::array<float, kStateDim> ObservationBuilder::Build(
   double goal_angle = NormalizeAngle(std::atan2(dy, dx) - odom.theta);
 
   // [24] normalized distance
-  obs[24] = Clamp(static_cast<float>(distance / kGoalDistScale), 0.0f, 1.0f);
+  obs[24] = Clamp(static_cast<float>(distance / goal_dist_scale_), 0.0f, 1.0f);
   // [25] cos(goal_angle)
   obs[25] = static_cast<float>(std::cos(goal_angle));
   // [26] sin(goal_angle)
   obs[26] = static_cast<float>(std::sin(goal_angle));
   // [27] progress
-  obs[27] = static_cast<float>(current_step) / static_cast<float>(kMaxSteps);
+  obs[27] = static_cast<float>(current_step) / static_cast<float>(max_steps_);
 
   return obs;
 }

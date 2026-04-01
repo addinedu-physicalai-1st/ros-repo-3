@@ -125,19 +125,16 @@ void TcpServer::Stop() {
 bool TcpServer::Send(int client_fd, const std::vector<uint8_t>& data) {
   if (data.empty()) return false;
 
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  if (clients_.find(client_fd) == clients_.end()) return false;
+  {
+    std::lock_guard<std::mutex> lock(clients_mutex_);
+    if (clients_.find(client_fd) == clients_.end()) return false;
+  }
 
   size_t total_sent = 0;
   while (total_sent < data.size()) {
-    ssize_t sent = send(client_fd, data.data() + total_sent, data.size() - total_sent, MSG_NOSIGNAL);
-    if (sent < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        usleep(1000);
-        continue;
-      }
-      return false;
-    }
+    ssize_t sent = send(client_fd, data.data() + total_sent,
+                        data.size() - total_sent, MSG_NOSIGNAL);
+    if (sent < 0) return false;
     total_sent += sent;
   }
   return true;
@@ -146,18 +143,21 @@ bool TcpServer::Send(int client_fd, const std::vector<uint8_t>& data) {
 void TcpServer::Broadcast(const std::vector<uint8_t>& data) {
   if (data.empty()) return;
 
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  for (const auto& [fd, state] : clients_) {
+  std::vector<int> fds;
+  {
+    std::lock_guard<std::mutex> lock(clients_mutex_);
+    fds.reserve(clients_.size());
+    for (const auto& [fd, state] : clients_) {
+      fds.push_back(fd);
+    }
+  }
+
+  for (int fd : fds) {
     size_t total_sent = 0;
     while (total_sent < data.size()) {
-      ssize_t sent = send(fd, data.data() + total_sent, data.size() - total_sent, MSG_NOSIGNAL);
-      if (sent < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-          usleep(1000);
-          continue;
-        }
-        break;
-      }
+      ssize_t sent = send(fd, data.data() + total_sent,
+                          data.size() - total_sent, MSG_NOSIGNAL);
+      if (sent < 0) break;
       total_sent += sent;
     }
   }
@@ -232,44 +232,53 @@ void TcpServer::ReadClient(int fd) {
   uint8_t buffer[kBufferSize];
   bool disconnected = false;
 
-  std::vector<uint8_t>* client_buffer = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(clients_mutex_);
-    auto it = clients_.find(fd);
-    if (it == clients_.end()) return;
-    client_buffer = &it->second.recv_buffer;
-  }
-
+  // Phase 1: Read all available data into a local buffer (no lock needed).
+  std::vector<uint8_t> incoming;
   while (true) {
     ssize_t count = read(fd, buffer, sizeof(buffer));
     if (count < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        break;
-      }
+      if (errno == EAGAIN || errno == EWOULDBLOCK) break;
       disconnected = true;
       break;
     } else if (count == 0) {
       disconnected = true;
       break;
     }
+    incoming.insert(incoming.end(), buffer, buffer + count);
+  }
 
-    client_buffer->insert(client_buffer->end(), buffer, buffer + count);
-    
-    if (on_message_) {
-      ParsedMessage msg;
-      size_t bytes_consumed = 0;
-      while (client_buffer->size() >= kHeaderSize) { // basic check
-        ParseResult res = ParseMessage(client_buffer->data(), client_buffer->size(), msg, bytes_consumed);
-        if (res == ParseResult::kOk) {
-          on_message_(fd, msg);
-          client_buffer->erase(client_buffer->begin(), client_buffer->begin() + bytes_consumed);
-        } else if (res == ParseResult::kIncomplete) {
-          break;
-        } else {
-          // Parsing error, drop a byte and try to re-sync
-          client_buffer->erase(client_buffer->begin());
-        }
+  // Phase 2: Append to client recv_buffer and parse under lock.
+  //          Collect parsed messages into a local vector.
+  std::vector<ParsedMessage> messages;
+  if (!incoming.empty()) {
+    std::lock_guard<std::mutex> lock(clients_mutex_);
+    auto it = clients_.find(fd);
+    if (it == clients_.end()) return;
+
+    auto& client_buffer = it->second.recv_buffer;
+    client_buffer.insert(client_buffer.end(), incoming.begin(), incoming.end());
+
+    ParsedMessage msg;
+    size_t bytes_consumed = 0;
+    while (client_buffer.size() >= kHeaderSize) {
+      ParseResult res = ParseMessage(client_buffer.data(), client_buffer.size(),
+                                     msg, bytes_consumed);
+      if (res == ParseResult::kOk) {
+        messages.push_back(std::move(msg));
+        client_buffer.erase(client_buffer.begin(),
+                            client_buffer.begin() + bytes_consumed);
+      } else if (res == ParseResult::kIncomplete) {
+        break;
+      } else {
+        client_buffer.erase(client_buffer.begin());
       }
+    }
+  }
+
+  // Phase 3: Dispatch callbacks outside the lock (prevents deadlock).
+  if (on_message_) {
+    for (const auto& msg : messages) {
+      on_message_(fd, msg);
     }
   }
 

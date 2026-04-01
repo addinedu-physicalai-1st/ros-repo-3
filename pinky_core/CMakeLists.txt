@@ -30,6 +30,9 @@ if(NOT spdlog_FOUND)
   pkg_check_modules(SPDLOG REQUIRED spdlog)
 endif()
 
+# yaml-cpp (for config file loading)
+find_package(yaml-cpp QUIET)
+
 # OpenCV (optional, needed for camera frame encoding)
 find_package(OpenCV QUIET COMPONENTS core imgcodecs)
 
@@ -67,6 +70,7 @@ set(CORE_SOURCES
   src/core/lidar_processor.cpp
   src/core/battery_monitor.cpp
   src/core/led_controller.cpp
+  src/core/emotion_renderer.cpp
   src/inference/onnx_actor.cpp
   src/inference/observation_builder.cpp
   src/inference/rl_controller.cpp
@@ -135,8 +139,20 @@ endif()
 # ---------------------------------------------------------------------------
 # Main executable (Phase 6)
 # ---------------------------------------------------------------------------
-add_executable(pinky_robot src/app/main.cpp src/app/robot_app.cpp)
+set(ROBOT_SOURCES src/app/main.cpp src/app/robot_app.cpp)
+if(yaml-cpp_FOUND)
+  list(APPEND ROBOT_SOURCES src/app/config_loader.cpp)
+endif()
+
+add_executable(pinky_robot ${ROBOT_SOURCES})
 target_link_libraries(pinky_robot PRIVATE pinky_core)
+
+if(yaml-cpp_FOUND)
+  target_link_libraries(pinky_robot PRIVATE yaml-cpp::yaml-cpp)
+  target_compile_definitions(pinky_robot PRIVATE PINKY_HAS_YAMLCPP)
+else()
+  message(STATUS "yaml-cpp not found, config file loading disabled")
+endif()
 
 if(BUILD_HAL)
   target_link_libraries(pinky_robot PRIVATE pinky_hal)

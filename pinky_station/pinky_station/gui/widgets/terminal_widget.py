@@ -5,23 +5,28 @@ import struct
 from pinky_station.protocol.serializer import ParsedMessage
 
 class TerminalWidget(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, max_lines: int = 5000, default_filter: str = "All",
+                 parent=None):
         super().__init__(parent)
+        self._max_lines = max_lines
         layout = QVBoxLayout(self)
-        
+
         # Tools layout
         tools_layout = QHBoxLayout()
         self.combo_filter = QComboBox()
-        self.combo_filter.addItems(["All", "DEBUG", "INFO", "WARN", "ERROR"])
+        filters = ["All", "DEBUG", "INFO", "WARN", "ERROR"]
+        self.combo_filter.addItems(filters)
+        if default_filter in filters:
+            self.combo_filter.setCurrentText(default_filter)
         self.btn_clear = QPushButton("Clear")
-        
+
         tools_layout.addWidget(self.combo_filter)
         tools_layout.addWidget(self.btn_clear)
         tools_layout.addStretch()
-        
+
         self.text_edit = QPlainTextEdit()
         self.text_edit.setReadOnly(True)
-        self.text_edit.setMaximumBlockCount(5000)
+        self.text_edit.setMaximumBlockCount(max_lines)
         self.text_edit.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: monospace;")
         
         layout.addLayout(tools_layout)
@@ -38,7 +43,7 @@ class TerminalWidget(QWidget):
         severity_str = severities[severity_idx] if severity_idx < len(severities) else "UNKNOWN"
         
         self._all_logs.append((severity_str, text))
-        if len(self._all_logs) > 5000:
+        if len(self._all_logs) > self._max_lines:
             self._all_logs.pop(0)
             
         # Draw immediately if it matches filter

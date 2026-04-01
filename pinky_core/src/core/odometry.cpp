@@ -1,22 +1,19 @@
 #include "pinky_core/core/odometry.h"
 
-#include "pinky_core/common/constants.h"
+#include <cmath>
 
 namespace pinky {
 
 OdometryAccumulator::OdometryAccumulator(double wheel_radius,
-                                         double wheel_base,
-                                         int pulses_per_rot)
+                                         double wheel_base)
     : wheel_radius_(wheel_radius),
-      wheel_base_(wheel_base),
-      pulses_per_rot_(pulses_per_rot),
-      circumference_(2.0 * kPi * wheel_radius) {}
+      wheel_base_(wheel_base) {}
 
-Odometry OdometryAccumulator::Update(int32_t encoder_l, int32_t encoder_r,
+Odometry OdometryAccumulator::Update(double left_rad, double right_rad,
                                      Timestamp now) {
   if (!initialized_) {
-    last_encoder_l_ = encoder_l;
-    last_encoder_r_ = encoder_r;
+    last_left_rad_ = left_rad;
+    last_right_rad_ = right_rad;
     last_time_ = now;
     initialized_ = true;
     return {now, x_, y_, theta_, 0.0, 0.0};
@@ -28,16 +25,14 @@ Odometry OdometryAccumulator::Update(int32_t encoder_l, int32_t encoder_r,
     return {now, x_, y_, theta_, 0.0, 0.0};
   }
 
-  int32_t delta_l = encoder_l - last_encoder_l_;
-  int32_t delta_r = -(encoder_r - last_encoder_r_);  // right motor negated
+  double delta_l_rad = left_rad - last_left_rad_;
+  double delta_r_rad = -(right_rad - last_right_rad_);  // right motor negated
 
-  last_encoder_l_ = encoder_l;
-  last_encoder_r_ = encoder_r;
+  last_left_rad_ = left_rad;
+  last_right_rad_ = right_rad;
 
-  double dist_l =
-      (static_cast<double>(delta_l) / pulses_per_rot_) * circumference_;
-  double dist_r =
-      (static_cast<double>(delta_r) / pulses_per_rot_) * circumference_;
+  double dist_l = delta_l_rad * wheel_radius_;
+  double dist_r = delta_r_rad * wheel_radius_;
 
   double delta_distance = (dist_r + dist_l) / 2.0;
   double delta_theta = (dist_r - dist_l) / wheel_base_;
@@ -56,6 +51,13 @@ Odometry OdometryAccumulator::Update(int32_t encoder_l, int32_t encoder_r,
 
 void OdometryAccumulator::Reset() {
   x_ = y_ = theta_ = 0.0;
+  initialized_ = false;
+}
+
+void OdometryAccumulator::Reset(double x, double y, double theta) {
+  x_ = x;
+  y_ = y;
+  theta_ = theta;
   initialized_ = false;
 }
 

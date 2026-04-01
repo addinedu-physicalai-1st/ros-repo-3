@@ -5,12 +5,12 @@ class ToolbarWidget(QWidget):
     sig_connect_toggled = pyqtSignal(str) # Emits IP address string or empty string to disconnect
     sig_set_pose_mode = pyqtSignal(bool)  # Emits true if entering 2D Pose Estimate mode
 
-    def __init__(self, parent=None):
+    def __init__(self, default_host: str = "127.0.0.1", parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.input_ip = QLineEdit("127.0.0.1")
+
+        self.input_ip = QLineEdit(default_host)
         self.input_ip.setFixedWidth(150)
         
         self.btn_connect = QPushButton("Connect")

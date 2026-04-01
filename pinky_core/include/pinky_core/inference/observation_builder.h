@@ -15,6 +15,9 @@ namespace pinky {
 //   [27]    = current_step / max_steps
 class ObservationBuilder {
  public:
+  explicit ObservationBuilder(float goal_dist_scale = kGoalDistScale,
+                              int max_steps = kMaxSteps);
+
   void SetGoal(float goal_x, float goal_y);
 
   std::array<float, kStateDim> Build(const LidarSectors& lidar,
@@ -25,6 +28,8 @@ class ObservationBuilder {
   float goal_y() const { return goal_y_; }
 
  private:
+  float goal_dist_scale_;
+  int max_steps_;
   float goal_x_{0.0f};
   float goal_y_{0.0f};
 };

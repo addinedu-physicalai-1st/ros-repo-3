@@ -1,3 +1,5 @@
+from collections import deque
+
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from PyQt6.QtGui import QPainter, QColor, QPen, QTransform, QPolygonF
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF
@@ -9,23 +11,28 @@ class MapWidget(QWidget):
     sig_set_goal = pyqtSignal(float, float, float)
     sig_set_pose = pyqtSignal(float, float, float)
 
-    def __init__(self, parent=None):
+    def __init__(self, scale: float = 50.0, parent=None):
         super().__init__(parent)
         self.setMinimumSize(400, 400)
-        
+
         self.robot_x = 0.0
         self.robot_y = 0.0
         self.robot_theta = 0.0
-        
+
         self.goal_x = None
         self.goal_y = None
-        
+
         # Simple panning/zooming variables
-        self.scale_factor = 50.0 # pixels per meter
+        self.scale_factor = scale  # pixels per meter
         self.offset_x = 0.0
         self.offset_y = 0.0
-        
+
         self.last_mouse_pos = None
+        self.pose_mode = False
+
+        # Odometry trail (world coordinates)
+        self.trail: deque[tuple[float, float]] = deque(maxlen=2000)
+        self._trail_skip = 0
 
     def update_odom(self, msg):
         try:
@@ -34,6 +41,11 @@ class MapWidget(QWidget):
             self.robot_x = x
             self.robot_y = y
             self.robot_theta = theta
+            # Record trail at ~5Hz (odom arrives at 50Hz)
+            self._trail_skip += 1
+            if self._trail_skip >= 10:
+                self._trail_skip = 0
+                self.trail.append((x, y))
             self.update()
         except Exception:
             pass
@@ -69,7 +81,7 @@ class MapWidget(QWidget):
         painter.setBrush(QColor(0, 200, 255))
         
         rx_screen = cx + self.offset_x * self.scale_factor
-        ry_screen = cy + self.offset_y * self.scale_factor
+        ry_screen = cy - self.offset_y * self.scale_factor
         
         robot_radius = 8
         painter.drawEllipse(QPointF(rx_screen, ry_screen), robot_radius, robot_radius)
@@ -80,6 +92,17 @@ class MapWidget(QWidget):
         hy = ry_screen - math.sin(self.robot_theta) * robot_radius * 2
         painter.drawLine(int(rx_screen), int(ry_screen), int(hx), int(hy))
 
+        # Draw odometry trail
+        if len(self.trail) >= 2:
+            painter.setPen(QPen(QColor(80, 200, 80, 160), 2))
+            pts = list(self.trail)
+            for i in range(len(pts) - 1):
+                x0 = tx + pts[i][0] * self.scale_factor
+                y0 = ty - pts[i][1] * self.scale_factor
+                x1 = tx + pts[i + 1][0] * self.scale_factor
+                y1 = ty - pts[i + 1][1] * self.scale_factor
+                painter.drawLine(int(x0), int(y0), int(x1), int(y1))
+
         # Draw goal if set
         if self.goal_x is not None and self.goal_y is not None:
             gx_screen = tx + self.goal_x * self.scale_factor
@@ -88,24 +111,23 @@ class MapWidget(QWidget):
             painter.setBrush(QColor(255, 0, 100))
             painter.drawEllipse(QPointF(gx_screen, gy_screen), 6, 6)
             
+    def set_pose_mode(self, active: bool):
+        self.pose_mode = active
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Map screen coordinates to world coordinates
             cx = self.rect().width() / 2.0
             cy = self.rect().height() / 2.0
-            
-            # rx_screen = cx + offset_x * scale
-            # tx = cx + (offset_x - robot_x) * scale => tx = rx_screen - robot_x * scale
-            # sx = tx + x_world * scale => sx = cx + (offset_x - robot_x + x_world) * scale
-            
+
             x_world = (event.position().x() - cx) / self.scale_factor - self.offset_x + self.robot_x
             y_world = -(event.position().y() - cy) / self.scale_factor + self.offset_y + self.robot_y
-            
-            self.goal_x = x_world
-            self.goal_y = y_world
-            
-            # Emit navigation goal. Theta is simplified to 0 for now.
-            self.sig_set_goal.emit(self.goal_x, self.goal_y, 0.0)
+
+            if self.pose_mode:
+                self.sig_set_pose.emit(x_world, y_world, 0.0)
+            else:
+                self.goal_x = x_world
+                self.goal_y = y_world
+                self.sig_set_goal.emit(self.goal_x, self.goal_y, 0.0)
             self.update()
         elif event.button() == Qt.MouseButton.RightButton:
             self.last_mouse_pos = event.position()

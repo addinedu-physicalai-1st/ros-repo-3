@@ -1,9 +1,13 @@
-import sys
+import math
 import struct
+import sys
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel
 )
 from PyQt6.QtCore import Qt
+
+# Config
+from pinky_station.config import StationConfig
 
 # Net
 from pinky_station.net.connection import ConnectionManager, ConnectionState
@@ -24,37 +28,49 @@ from pinky_station.workers.camera_worker import CameraWorker
 from pinky_station.workers.command_worker import CommandWorker
 
 class PinkyStationWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, config: StationConfig | None = None):
         super().__init__()
+        self.cfg = config or StationConfig()
         self.setWindowTitle("Pinky Station (PyQt6)")
-        self.resize(1200, 800)
-        
-        self.conn = ConnectionManager()
+
+        self.conn = ConnectionManager(
+            tcp_port=self.cfg.connection.tcp_port,
+            udp_port=self.cfg.connection.udp_port,
+        )
         self.conn.on_state_change = self._on_conn_state_change
-        
+
         self.sensor_worker = None
         self.camera_worker = None
         self.command_worker = None
-        
+
         # Central widget and layout
         central = QWidget()
         main_layout = QVBoxLayout(central)
         self.setCentralWidget(central)
-        
+
         # Toolbar
-        self.toolbar = ToolbarWidget()
+        self.toolbar = ToolbarWidget(
+            default_host=self.cfg.connection.default_host,
+        )
         self.toolbar.sig_connect_toggled.connect(self._toggle_connection)
         self.toolbar.sig_set_pose_mode.connect(self._on_pose_mode_changed)
         main_layout.addWidget(self.toolbar)
         
         # Split layout
         content_layout = QHBoxLayout()
-        
+
         # Left Panel
         left_layout = QVBoxLayout()
         self.battery_view = BatteryWidget()
-        self.teleop_view = TeleopWidget()
-        self.terminal_view = TerminalWidget()
+        self.teleop_view = TeleopWidget(
+            default_speed=self.cfg.teleop.default_linear_speed,
+            max_speed=self.cfg.teleop.max_linear_speed,
+            angular_speed=self.cfg.teleop.default_angular_speed,
+        )
+        self.terminal_view = TerminalWidget(
+            max_lines=self.cfg.terminal.max_lines,
+            default_filter=self.cfg.terminal.default_filter,
+        )
         
         left_layout.addWidget(self.battery_view)
         left_layout.addWidget(self.teleop_view)
@@ -72,7 +88,7 @@ class PinkyStationWindow(QMainWindow):
         
         # Right Panel
         right_layout = QVBoxLayout()
-        self.map_view = MapWidget()
+        self.map_view = MapWidget(scale=self.cfg.gui.map_scale)
         right_layout.addWidget(QLabel("2D Map & Navigation"))
         right_layout.addWidget(self.map_view, stretch=1)
         
@@ -89,10 +105,20 @@ class PinkyStationWindow(QMainWindow):
             self.terminal_view.append_log(2, f"Connecting to {ip_target}...")
             self.conn.connect(ip_target)
 
+    def _on_lidar_data(self, msg):
+        try:
+            # 24 normalized sectors (float32), denormalize to meters
+            sectors = struct.unpack('<24f', msg.payload[:96])
+            max_range = 3.5  # Must match C++ kMaxLidarDist
+            ranges = [s * max_range for s in sectors]
+            angle_min = 0.0
+            angle_increment = 2.0 * math.pi / 24.0
+            self.lidar_view.update_scan(ranges, angle_min, angle_increment)
+        except Exception:
+            pass
+
     def _on_pose_mode_changed(self, active: bool):
-        # Notify Map widget to expect 2D Pose estimate instead of nav goal clicks 
-        # For simplicity, we can pass state to map_view
-        pass
+        self.map_view.set_pose_mode(active)
 
     def _on_conn_state_change(self, state: ConnectionState):
         if state == ConnectionState.CONNECTED:
@@ -113,7 +139,7 @@ class PinkyStationWindow(QMainWindow):
             self.sensor_worker = SensorWorker(self.conn.udp)
             self.sensor_worker.sig_battery.connect(self.battery_view.update_status)
             self.sensor_worker.sig_odom.connect(self.map_view.update_odom)
-            # Lidar 1D or 2D mapping can be routed here as well
+            self.sensor_worker.sig_lidar.connect(self._on_lidar_data)
             self.sensor_worker.start()
 
         if self.conn.tcp and not self.camera_worker:
@@ -140,7 +166,18 @@ class PinkyStationWindow(QMainWindow):
                     original_tcp_cb(msg)
             self.conn.tcp.on_message = combined_cb
 
+        # Start ROS 2 Nav2 Bridge if applicable
+        if self.command_worker and self.sensor_worker and not self.nav_worker:
+            self.nav_worker = NavWorker(self.command_worker)
+            self.nav_worker.sig_log.connect(lambda txt: self.terminal_view.append_log(2, txt))
+            self.sensor_worker.sig_odom.connect(self.nav_worker.on_odom_received)
+            self.nav_worker.start()
+
     def _cleanup_workers(self):
+        if self.nav_worker:
+            self.nav_worker.stop()
+            self.nav_worker.wait()
+            self.nav_worker = None
         if self.sensor_worker:
             self.sensor_worker.stop()
             self.sensor_worker.wait()

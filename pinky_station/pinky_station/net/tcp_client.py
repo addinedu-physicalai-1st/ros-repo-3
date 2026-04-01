@@ -32,7 +32,7 @@ class TcpClient:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.settimeout(5.0)  # Connect timeout
             self.sock.connect((self.host, self.port))
-            self.sock.settimeout(None)  # Blocking mode for recv thread
+            self.sock.settimeout(1.0)  # Timeout for recv thread to check _running
             
             self._running = True
             self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)

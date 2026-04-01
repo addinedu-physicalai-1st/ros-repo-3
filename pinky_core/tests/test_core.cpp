@@ -84,9 +84,9 @@ static void TestDiffDriveRpmClamp() {
 // ---------------------------------------------------------------------------
 static void TestOdometryInit() {
   std::printf("[TestOdometryInit]\n");
-  OdometryAccumulator odom(kWheelRadius, kWheelBase, kEncoderPpr);
+  OdometryAccumulator odom(kWheelRadius, kWheelBase);
   Timestamp t0{1000000000LL};  // 1 second
-  auto result = odom.Update(0, 0, t0);
+  auto result = odom.Update(0.0, 0.0, t0);
   CHECK(Near(result.x, 0.0));
   CHECK(Near(result.y, 0.0));
   CHECK(Near(result.vx, 0.0));
@@ -94,18 +94,18 @@ static void TestOdometryInit() {
 
 static void TestOdometryStraight() {
   std::printf("[TestOdometryStraight]\n");
-  OdometryAccumulator odom(kWheelRadius, kWheelBase, kEncoderPpr);
+  OdometryAccumulator odom(kWheelRadius, kWheelBase);
   Timestamp t0{0};
-  odom.Update(0, 0, t0);
+  odom.Update(0.0, 0.0, t0);
 
-  // Advance both encoders by 4096 ticks = 1 revolution
+  // Advance both wheels by 2*pi radians = 1 revolution
   // Distance per wheel = circumference = 2*pi*0.028 ≈ 0.17593 m
-  // Right encoder is negated: delta_r = -(encoder_r - last_encoder_r_)
-  // So to make right wheel go forward, encoder_r should decrease
+  // Right motor is negated: delta_r = -(right_rad - last_right_rad)
+  // So to make right wheel go forward, right_rad should decrease
   Timestamp t1{1000000000LL};
-  auto result = odom.Update(4096, -4096, t1);
+  auto result = odom.Update(kTwoPi, -kTwoPi, t1);
 
-  double expected_dist = 2.0 * kPi * kWheelRadius;
+  double expected_dist = kTwoPi * kWheelRadius;
   CHECK(Near(result.x, expected_dist, 1e-3));
   CHECK(Near(result.y, 0.0, 1e-3));
   CHECK(Near(result.vx, expected_dist, 1e-3));  // 1 second elapsed
@@ -113,10 +113,10 @@ static void TestOdometryStraight() {
 
 static void TestOdometryReset() {
   std::printf("[TestOdometryReset]\n");
-  OdometryAccumulator odom(kWheelRadius, kWheelBase, kEncoderPpr);
+  OdometryAccumulator odom(kWheelRadius, kWheelBase);
   Timestamp t0{0};
-  odom.Update(0, 0, t0);
-  odom.Update(1000, -1000, {100000000LL});
+  odom.Update(0.0, 0.0, t0);
+  odom.Update(1.0, -1.0, {100000000LL});
 
   odom.Reset();
   CHECK(Near(odom.x(), 0.0));

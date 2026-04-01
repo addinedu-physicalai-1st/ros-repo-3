@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include "pinky_core/common/constants.h"
+#include "pinky_core/core/emotion_renderer.h"
 
 #ifdef BUILD_HAL
 #include "pinky_core/hal/dynamixel_motor.h"
@@ -18,7 +19,14 @@ namespace pinky {
 
 using namespace std::chrono_literals;
 
-RobotApp::RobotApp(const RobotConfig& config) : config_(config) {
+RobotApp::RobotApp(const RobotConfig& config)
+    : config_(config),
+      diff_drive_(config.wheel_radius, config.wheel_base, config.max_rpm),
+      odom_calc_(config.wheel_radius, config.wheel_base),
+      obs_builder_(config.rl.goal_dist_scale, config.rl.max_steps),
+      rl_controller_(config.rl.kp_v, config.rl.kd_v,
+                     config.rl.kp_w, config.rl.kd_w,
+                     config.rl.v_min, config.rl.v_max, config.rl.w_max) {
   tcp_ = std::make_shared<TcpServer>(config_.tcp_port);
   udp_ = std::make_shared<UdpServer>(config_.udp_port);
   conn_mgr_ = std::make_shared<ConnectionManager>(tcp_, udp_);
@@ -60,7 +68,7 @@ bool RobotApp::Init() {
 
 #ifdef PINKY_HAS_ONNXRUNTIME
   try {
-    onnx_actor_ = std::make_unique<OnnxActor>(config_.onnx_model_path);
+    onnx_actor_ = std::make_unique<OnnxActor>(config_.rl.model_path);
   } catch (const std::exception& e) {
     std::cerr << "OnnxActor load failed: " << e.what() << "\n";
   }
@@ -95,6 +103,7 @@ void RobotApp::Run() {
   imu_thread_ = std::thread(&RobotApp::ImuLoop, this);
   adc_thread_ = std::thread(&RobotApp::AdcLoop, this);
   lidar_thread_ = std::thread(&RobotApp::LidarLoop, this);
+  if (camera_) camera_thread_ = std::thread(&RobotApp::CameraLoop, this);
 
   while (running_.load()) {
     std::this_thread::sleep_for(1s);
@@ -116,6 +125,7 @@ void RobotApp::Stop() {
   if (imu_thread_.joinable()) imu_thread_.join();
   if (adc_thread_.joinable()) adc_thread_.join();
   if (lidar_thread_.joinable()) lidar_thread_.join();
+  if (camera_thread_.joinable()) camera_thread_.join();
 }
 
 void RobotApp::OnTcpMessage(int fd, const ParsedMessage& msg) {
@@ -149,10 +159,21 @@ void RobotApp::OnTcpMessage(int fd, const ParsedMessage& msg) {
     return;
   }
 
+  if (msg.msg_type == MsgType::kSetEmotion) {
+    uint8_t eid = DeserializeEmotion(msg.payload);
+    if (lcd_) {
+      auto fb = RenderEmotion(static_cast<EmotionId>(eid));
+      lcd_->DrawFrame(fb.data(), fb.size());
+    }
+    return;
+  }
+
   if (msg.msg_type == MsgType::kSetPose) {
-    // Reset odometry to origin (pose-aware reset not yet implemented)
+    Pose2D pose = DeserializeSetPose(msg.payload);
     std::lock_guard<std::mutex> lock(state_mutex_);
-    odom_calc_.Reset();
+    odom_calc_.Reset(static_cast<double>(pose.x),
+                     static_cast<double>(pose.y),
+                     static_cast<double>(pose.theta));
     return;
   }
 }
@@ -170,9 +191,7 @@ void RobotApp::MotorOdomLoop() {
         std::lock_guard<std::mutex> lock(state_mutex_);
         // Update odometry
         current_odom_ = odom_calc_.Update(
-            static_cast<int32_t>(js.position[0]),
-            static_cast<int32_t>(js.position[1]),
-            Timestamp::Now());
+            js.position[0], js.position[1], js.stamp);
         
         // Broadcast Odom via UDP
         std::vector<uint8_t> odom_payload = serializer_->SerializeOdom(current_odom_);
@@ -186,6 +205,12 @@ void RobotApp::MotorOdomLoop() {
             target_cmd_vel_.linear_x, target_cmd_vel_.angular_z);
         motor_->SetVelocityWait(rpm_l, rpm_r);
       }
+    } else {
+      // Mock mode: broadcast current_odom_ continuously
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      std::vector<uint8_t> odom_payload = serializer_->SerializeOdom(current_odom_);
+      std::vector<uint8_t> udp_pkt = serializer_->Frame(MsgType::kOdom, odom_payload);
+      udp_->Send(udp_pkt);
     }
 
     auto elapsed = std::chrono::steady_clock::now() - start_time;
@@ -282,6 +307,32 @@ void RobotApp::LidarLoop() {
     } else {
       std::this_thread::sleep_for(100ms);
     }
+  }
+}
+
+void RobotApp::CameraLoop() {
+  const auto period = std::chrono::milliseconds(100);  // 10 fps
+  while (running_.load()) {
+    auto start_time = std::chrono::steady_clock::now();
+
+    if (camera_) {
+      std::vector<uint8_t> jpeg;
+      uint16_t width = 0;
+      uint16_t height = 0;
+      if (camera_->CaptureJpeg(jpeg, width, height)) {
+        CameraFrame frame;
+        frame.width = width;
+        frame.height = height;
+        frame.jpeg_data = std::move(jpeg);
+
+        std::vector<uint8_t> payload = serializer_->SerializeCameraFrame(frame);
+        std::vector<uint8_t> tcp_pkt = serializer_->Frame(MsgType::kCameraFrame, payload);
+        tcp_->Broadcast(tcp_pkt);
+      }
+    }
+
+    auto elapsed = std::chrono::steady_clock::now() - start_time;
+    if (elapsed < period) std::this_thread::sleep_for(period - elapsed);
   }
 }
 

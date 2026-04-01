@@ -1,0 +1,80 @@
+# Phase 4-8 최종 통합 및 트러블슈팅 보고서
+
+> **작성일:** 2026-04-01
+> **목적:** Phase 4-8의 잔여 미구현 항목(통합 테스트, GUI 테스트, Nav2 브릿지, YAML 파싱) 완료 및 발생한 이슈 해결 내역 정리
+
+---
+
+## 1. 주요 구현 내용
+
+### 1.1. 설정 파일(YAML) 파싱 적용
+- **Python (Station):** `station_config.yaml` 파일을 파싱하여 GUI 위젯(Teleop, Terminal, Map) 및 네트워크(ConnectionManager)의 초기값을 동적으로 설정하는 `StationConfig` 데이터 클래스 및 로더(`config.py`)를 구현했습니다. `main.py` 실행 시 자동 로드되거나 `--config` 플래그로 지정 가능합니다.
+- **C++ (Robot Core):** 기존 `robot_config.yaml` 파싱에 이어, 강화학습 추론 전용 설정인 `rl_config.yaml`을 파싱하기 위해 `config_loader.cpp`에 `LoadRlConfig()`를 추가하고 `RlConfig` 구조체를 도입했습니다. `--rl-config` 플래그를 통해 실행 시 반영됩니다.
+
+### 1.2. TCP/UDP 루프백 통합 테스트 (`test_integration_loopback.py`)
+- C++ `pinky_robot --mock` 프로세스를 테스트 픽스처(`conftest.py`)를 통해 백그라운드로 띄운 뒤, 파이썬 클라이언트가 로컬호스트(127.0.0.1)로 접속하여 실제 소켓 레벨의 TCP(명령, 설정) 및 UDP(센서 스트리밍) 통신이 성공적으로 이루어지는지 검증하는 E2E 테스트를 완성했습니다.
+
+### 1.3. GUI 위젯 단위 테스트 (`test_gui_widgets.py`)
+- `pytest-qt`를 활용하여 PyQt6 위젯에 대한 단위 테스트를 작성했습니다.
+- 가상의 마우스 클릭(Teleop), 값 업데이트(Battery), 필터링 및 텍스트 렌더링(Terminal), Odometry 수신에 따른 내부 변수 변환(Map) 등이 정상 동작함을 검증했습니다.
+- 헤드리스 환경(CI/터미널)에서도 테스트가 돌 수 있도록 `QT_QPA_PLATFORM=offscreen` 환경변수 세팅을 도입했습니다.
+
+### 1.4. ROS2 Nav2 브릿지 (`NavWorker`)
+- `pinky_station`과 ROS2 Navigation2 스택을 연결하는 `NavWorker` 및 `RosBridgeNode`(`nav_worker.py`)를 신규 구현했습니다.
+- **동작 흐름:** 로봇에서 UDP로 올라온 ODOM 데이터를 `tf2`(`odom` -> `base_link`)와 `nav_msgs/Odometry`로 ROS2 네트워크에 발행(Publish)합니다.
+- 동시에 ROS2 환경(RViz 등)에서 내려오는 `cmd_vel` 및 `goal_pose`를 구독(Subscribe)하여 `pinky_station`의 TCP 프로토콜 포맷으로 변환해 로봇에 전송합니다.
+- ROS2(`rclpy`)가 설치되지 않은 일반 PC에서도 GUI가 크래시 나지 않도록 방어적인 예외 처리(Graceful degradation)를 적용했습니다.
+
+---
+
+## 2. 핵심 트러블슈팅 내역
+
+### 2.1. 50분 통합 테스트 정체(Hang / Deadlock) 현상 해결
+- **문제 원인:** 이전 테스트 시도 중 C++ 서버가 클라이언트 연결 종료를 제대로 처리하지 못해 먹통이 되었는데, 파이썬 `TcpClient`의 소켓 통신 모드가 타임아웃 없는 완전 블로킹(`settimeout(None)`) 상태로 설정되어 있어 응답 없는 서버를 영원히 기다리는 데드락(Deadlock)이 발생했습니다.
+- **해결책:** 파이썬 `TcpClient`의 `recv()` 스레드에 1.0초의 하드 타임아웃(`self.sock.settimeout(1.0)`)을 강제하여, 무한 대기를 방지하고 프로그램이 정상적으로 오류를 뱉고 다음 플로우로 넘어가도록 방어적 프로그래밍을 적용했습니다.
+
+### 2.2. UDP 포트 충돌 및 Mock 모드 브로드캐스트 침묵 해결
+- **문제 원인 1 (포트 충돌):** 로컬 루프백 테스트 시 하나의 PC 안에서 C++ 로봇 코어와 파이썬 테스트 클라이언트가 동시에 `9200`번 포트를 선점하려다 `Address already in use` 에러가 발생했습니다.
+- **해결책 1:** C++의 `UdpServer`와 파이썬의 `UdpReceiver` 소켓 모두에 `SO_REUSEADDR` 및 `SO_REUSEPORT` 소켓 옵션을 부여하여 포트 자원을 원활히 공유하도록 수정했습니다.
+- **문제 원인 2 (UDP 침묵):** C++ 로봇 앱이 `--mock` (가상 모드)로 실행될 때, 모터 하드웨어 객체가 없다는 이유로 가상의 Odometry 데이터조차 송신(Send)하지 않도록 분기가 막혀 있었습니다.
+- **해결책 2:** `robot_app.cpp`의 분기문(`else`)을 수정하여, Mock 모드일 때도 일정한 주기로 임의의 Odom 패킷이 브로드캐스트 되도록 고쳤습니다.
+
+### 2.3. 파이썬 문법 오류 및 테스트 의존성 충돌
+- **동적 상속 문법 오류:** `NavWorker` 작성 시 `class RosBridgeNode(Node) if HAS_ROS2 else object:` 와 같은 잘못된 파이썬 동적 상속 문법으로 인해 컴파일 에러(SyntaxError)가 발생했습니다. 이를 별도의 조건문으로 부모 클래스를 결정하는 방식(`Node_Base = Node if HAS_ROS2 else object; class RosBridgeNode(Node_Base):`)으로 깔끔하게 우회했습니다.
+- **의존성 충돌:** uv 가상환경 내에 ROS2의 `launch_testing` 플러그인이 엮이면서 `lark` 모듈을 찾지 못하거나 `pytest-qt`가 없는 문제가 발생했습니다. `uv pip`를 통해 누락된 패키지들을 수동으로 추가 설치하여 해결했습니다.
+
+---
+
+## 3. 실행 및 설치 가이드 (새로운 환경 세팅 시)
+
+### 필요 의존성 설치
+통합 테스트와 GUI 단위 테스트를 실행하기 위해 파이썬 가상환경(uv)에 아래 라이브러리들이 설치되어 있어야 합니다.
+
+```bash
+# 가상환경 활성화 (프로젝트 루트)
+source .venv/bin/activate
+
+# 필수 패키지 설치
+uv pip install pytest pytest-qt PyQt6 lark
+```
+
+### 테스트 실행 명령어
+
+**GUI 단위 테스트 실행 (UI 팝업 없이 터미널 내부에서 검증)**
+```bash
+cd pinky_station
+QT_QPA_PLATFORM=offscreen python3 -m pytest tests/test_gui_widgets.py -v
+```
+
+**TCP/UDP 통신 루프백 통합 테스트 실행**
+```bash
+cd pinky_station
+python3 -m pytest tests/test_integration_loopback.py -v
+```
+
+**전체 테스트 일괄 실행**
+```bash
+cd pinky_station
+QT_QPA_PLATFORM=offscreen python3 -m pytest tests/ -v
+```
+*(현재 기준 통합 테스트 8건, GUI 위젯 테스트 5건 총 13건 모두 PASSED 상태입니다.)*
