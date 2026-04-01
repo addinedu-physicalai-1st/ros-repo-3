@@ -78,3 +78,25 @@ cd pinky_station
 QT_QPA_PLATFORM=offscreen python3 -m pytest tests/ -v
 ```
 *(현재 기준 통합 테스트 8건, GUI 위젯 테스트 5건 총 13건 모두 PASSED 상태입니다.)*
+
+---
+
+## 4. 추가 수정 내역 (2026-04-01)
+사용자 피드백을 반영하여 하드웨어 런타임 초기화 이슈 및 디스플레이 전력/뷰 문제를 해결했습니다.
+
+### 4.1. Lidar 초기화 및 ONNX 모델 경로 기본값 수정
+- **문제:** 사용자가 `--config` 옵션 없이 `./pinky_robot`을 실행할 때, 구버전의 하드코딩된 기본값이 적용되어 `SllidarDriver` 초기화 실패(1MHz vs 256kHz 통신속도 불일치) 및 ONNX 모델 경로(`models/` vs `../models/`) 탐색 실패 발생.
+- **수정:** 
+  - `robot_config.yaml` 및 `sllidar_driver.h`의 기본 `baudrate`를 S1 라이다 규격인 `256000`으로 수정.
+  - `rl_config.yaml` 및 `robot_app.h`의 기본 모델 경로를 빌드 폴더(`build/`) 기준 정상 위치인 `../models/sac_actor.onnx`로 수정.
+
+### 4.2. LCD 렌더링 방식 변경 (전력 소모 최적화 및 GIF 표시)
+- **문제:** 기존 `EmotionRenderer`가 원/선 등 기본 도형을 흰색/푸른색 배경 위에 그려 전력 소모가 심하고, 기획된 `basic.gif` 파일이 아닌 하드코딩된 도형이 노출됨.
+- **수정:**
+  - 이미지 디코딩을 위해 `stb_image.h` 단일 헤더 라이브러리를 프로젝트에 통합.
+  - LCD 렌더링 백그라운드를 `0x0000`(완전 검은색)으로 변경하여 디스플레이 픽셀 전력 소모 최소화.
+  - 감정 렌더링 시 기존 하드코딩 도형 대신 `pinky_emotion/emotion/*.gif` 파일들(`basic.gif`, `happy.gif`, `sad.gif` 등)을 로드하여 240x240 RGB565 규격으로 화면 중앙에 렌더링하도록 `emotion_renderer.cpp`를 전면 개편. (해당 파일이 없을 경우에만 기존 도형으로 Fallback)
+
+### 4.3. Python 관제탑 실행 경로 안내
+- **문제:** `pinky_cpp` 최상위 폴더에서 `python3 -m pinky_station.pinky_station.main` 실행 시 파이썬 패키지 경로 탐색 충돌로 `ImportError` 발생.
+- **가이드 반영:** `run_guide.md`에 반드시 `cd pinky_station`으로 서브 폴더 진입 후 `python3 -m pinky_station.main`으로 실행해야 함을 명시함.

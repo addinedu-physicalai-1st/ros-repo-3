@@ -16,7 +16,7 @@ class SllidarDriver : public ILidarDriver {
  public:
   struct Config {
     std::string port{"/dev/ttyAMA0"};
-    int baudrate{1000000};
+    int baudrate{256000};
   };
 
   explicit SllidarDriver(const Config& config);

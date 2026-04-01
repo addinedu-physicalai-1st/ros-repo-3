@@ -26,7 +26,7 @@ namespace pinky {
 
 // RL inference configuration (defaults from constants.h)
 struct RlConfig {
-  std::string model_path{"models/sac_actor.onnx"};
+  std::string model_path{"../models/sac_actor.onnx"};
   std::string input_name{"state"};
   std::string output_name{"action"};
 

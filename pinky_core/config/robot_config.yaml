@@ -12,7 +12,7 @@ hal:
     id_right: 2
   lidar:
     device: "/dev/ttyAMA0"
-    baudrate: 1000000
+    baudrate: 256000
   imu:
     interface: "/dev/i2c-0"
     address: 0x28

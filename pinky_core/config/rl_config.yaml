@@ -1,6 +1,6 @@
 # RL Inference Configuration
 model:
-  path: "models/sac_actor.onnx"
+  path: "../models/sac_actor.onnx"
   input_name: "state"
   output_name: "action"
   state_dim: 28

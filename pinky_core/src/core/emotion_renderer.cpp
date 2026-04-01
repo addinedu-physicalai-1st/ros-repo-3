@@ -2,6 +2,10 @@
 
 #include <cmath>
 #include <cstring>
+#include <iostream>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
 
 namespace pinky {
 
@@ -74,11 +78,41 @@ void Fill(uint8_t* buf, uint16_t color) {
   }
 }
 
+// Function to load a gif/image and center it on black background
+bool LoadImageIntoBuffer(const char* filepath, uint8_t* out_buf) {
+  int w, h, channels;
+  unsigned char *img = stbi_load(filepath, &w, &h, &channels, 3); // force RGB
+  if (!img) {
+    std::cerr << "Failed to load image: " << filepath << "\n";
+    return false;
+  }
+  
+  // Center image
+  int offset_x = (kWidth - w) / 2;
+  int offset_y = (kHeight - h) / 2;
+  
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      int px = x + offset_x;
+      int py = y + offset_y;
+      if (px >= 0 && px < kWidth && py >= 0 && py < kHeight) {
+        int img_idx = (y * w + x) * 3;
+        uint8_t r = img[img_idx];
+        uint8_t g = img[img_idx + 1];
+        uint8_t b = img[img_idx + 2];
+        SetPixel(out_buf, px, py, Rgb565(r, g, b));
+      }
+    }
+  }
+  stbi_image_free(img);
+  return true;
+}
+
 }  // namespace
 
 std::vector<uint8_t> RenderEmotion(EmotionId emotion) {
   std::vector<uint8_t> buf(kBufSize, 0);
-  uint16_t bg = Rgb565(20, 20, 40);
+  uint16_t bg = Rgb565(0, 0, 0); // Black background to save power
   uint16_t white = Rgb565(255, 255, 255);
   uint16_t black = Rgb565(0, 0, 0);
   uint16_t pink = Rgb565(255, 100, 150);
@@ -87,70 +121,68 @@ std::vector<uint8_t> RenderEmotion(EmotionId emotion) {
 
   switch (emotion) {
     case EmotionId::kNeutral:
-      // Eyes: two circles
-      FillCircle(buf.data(), 80, 100, 20, white);
-      FillCircle(buf.data(), 160, 100, 20, white);
-      FillCircle(buf.data(), 80, 100, 8, black);
-      FillCircle(buf.data(), 160, 100, 8, black);
-      // Mouth: horizontal line
-      FillRect(buf.data(), 85, 170, 70, 5, white);
+      // Try to load basic.gif as requested
+      if (!LoadImageIntoBuffer("../../pinky_pro/src/pinky_pro/pinky_emotion/emotion/basic.gif", buf.data())) {
+          // Fallback if file not found
+          FillCircle(buf.data(), 80, 100, 20, white);
+          FillCircle(buf.data(), 160, 100, 20, white);
+          FillCircle(buf.data(), 80, 100, 8, black);
+          FillCircle(buf.data(), 160, 100, 8, black);
+          FillRect(buf.data(), 85, 170, 70, 5, white);
+      }
       break;
 
     case EmotionId::kHappy:
-      // Eyes: happy arcs (^  ^)
-      DrawArc(buf.data(), 80, 110, 20, 200, 340, 4, white);
-      DrawArc(buf.data(), 160, 110, 20, 200, 340, 4, white);
-      // Mouth: smile arc
-      DrawArc(buf.data(), 120, 155, 35, 20, 160, 4, white);
-      // Cheeks
-      FillCircle(buf.data(), 50, 145, 12, pink);
-      FillCircle(buf.data(), 190, 145, 12, pink);
+      if (!LoadImageIntoBuffer("../../pinky_pro/src/pinky_pro/pinky_emotion/emotion/happy.gif", buf.data())) {
+          DrawArc(buf.data(), 80, 110, 20, 200, 340, 4, white);
+          DrawArc(buf.data(), 160, 110, 20, 200, 340, 4, white);
+          DrawArc(buf.data(), 120, 155, 35, 20, 160, 4, white);
+          FillCircle(buf.data(), 50, 145, 12, pink);
+          FillCircle(buf.data(), 190, 145, 12, pink);
+      }
       break;
 
     case EmotionId::kSad:
-      // Eyes: round with highlight
-      FillCircle(buf.data(), 80, 100, 22, white);
-      FillCircle(buf.data(), 160, 100, 22, white);
-      FillCircle(buf.data(), 80, 105, 8, black);
-      FillCircle(buf.data(), 160, 105, 8, black);
-      // Mouth: frown arc
-      DrawArc(buf.data(), 120, 195, 30, 200, 340, 4, white);
+      if (!LoadImageIntoBuffer("../../pinky_pro/src/pinky_pro/pinky_emotion/emotion/sad.gif", buf.data())) {
+          FillCircle(buf.data(), 80, 100, 22, white);
+          FillCircle(buf.data(), 160, 100, 22, white);
+          FillCircle(buf.data(), 80, 105, 8, black);
+          FillCircle(buf.data(), 160, 105, 8, black);
+          DrawArc(buf.data(), 120, 195, 30, 200, 340, 4, white);
+      }
       break;
 
     case EmotionId::kAngry:
-      // Eyes: slanted (inner corners down)
-      FillEllipse(buf.data(), 80, 100, 22, 14, white);
-      FillEllipse(buf.data(), 160, 100, 22, 14, white);
-      FillCircle(buf.data(), 80, 100, 7, black);
-      FillCircle(buf.data(), 160, 100, 7, black);
-      // Eyebrows: angled lines
-      FillRect(buf.data(), 60, 72, 45, 4, white);
-      FillRect(buf.data(), 135, 72, 45, 4, white);
-      // Mouth: zigzag (simplified as small rect)
-      FillRect(buf.data(), 85, 170, 70, 6, white);
+      if (!LoadImageIntoBuffer("../../pinky_pro/src/pinky_pro/pinky_emotion/emotion/angry.gif", buf.data())) {
+          FillEllipse(buf.data(), 80, 100, 22, 14, white);
+          FillEllipse(buf.data(), 160, 100, 22, 14, white);
+          FillCircle(buf.data(), 80, 100, 7, black);
+          FillCircle(buf.data(), 160, 100, 7, black);
+          FillRect(buf.data(), 60, 72, 45, 4, white);
+          FillRect(buf.data(), 135, 72, 45, 4, white);
+          FillRect(buf.data(), 85, 170, 70, 6, white);
+      }
       break;
 
     case EmotionId::kSurprised:
-      // Eyes: big circles
+      // No surprised gif, fallback to shape
       FillCircle(buf.data(), 80, 100, 28, white);
       FillCircle(buf.data(), 160, 100, 28, white);
       FillCircle(buf.data(), 80, 100, 12, black);
       FillCircle(buf.data(), 160, 100, 12, black);
-      // Mouth: O shape
       FillCircle(buf.data(), 120, 175, 18, white);
       FillCircle(buf.data(), 120, 175, 10, bg);
       break;
 
     case EmotionId::kSleepy:
-      // Eyes: horizontal lines (closed)
-      FillRect(buf.data(), 58, 100, 44, 4, white);
-      FillRect(buf.data(), 138, 100, 44, 4, white);
-      // ZZZ
-      FillRect(buf.data(), 175, 55, 20, 3, white);
-      FillRect(buf.data(), 185, 45, 15, 3, white);
-      FillRect(buf.data(), 195, 35, 10, 3, white);
-      // Mouth: small line
-      FillRect(buf.data(), 100, 170, 40, 4, white);
+      if (!LoadImageIntoBuffer("../../pinky_pro/src/pinky_pro/pinky_emotion/emotion/bored.gif", buf.data())) {
+          FillRect(buf.data(), 58, 100, 44, 4, white);
+          FillRect(buf.data(), 138, 100, 44, 4, white);
+          FillRect(buf.data(), 175, 55, 20, 3, white);
+          FillRect(buf.data(), 185, 45, 15, 3, white);
+          FillRect(buf.data(), 195, 35, 10, 3, white);
+          FillRect(buf.data(), 100, 170, 40, 4, white);
+      }
       break;
   }
 
