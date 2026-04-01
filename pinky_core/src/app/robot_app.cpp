@@ -57,7 +57,12 @@ bool RobotApp::Init() {
     if (!led_->Init()) std::cerr << "LED init failed\n";
 
     lcd_ = std::make_unique<Ili9341Lcd>(Ili9341Lcd::Config{});
-    if (!lcd_->Init()) std::cerr << "LCD init failed\n";
+    if (!lcd_->Init()) {
+      std::cerr << "LCD init failed\n";
+    } else {
+      auto fb = RenderEmotion(EmotionId::kNeutral);
+      lcd_->DrawFrame(fb.data(), fb.size());
+    }
 #else
     std::cerr << "Cannot enable HAL: Project built without BUILD_HAL.\n";
     return false;

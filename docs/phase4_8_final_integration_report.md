@@ -100,3 +100,7 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest tests/ -v
 ### 4.3. Python 관제탑 실행 경로 안내
 - **문제:** `pinky_cpp` 최상위 폴더에서 `python3 -m pinky_station.pinky_station.main` 실행 시 파이썬 패키지 경로 탐색 충돌로 `ImportError` 발생.
 - **가이드 반영:** `run_guide.md`에 반드시 `cd pinky_station`으로 서브 폴더 진입 후 `python3 -m pinky_station.main`으로 실행해야 함을 명시함.
+
+### 4.4. 로봇 앱 초기 구동 시 GIF 출력 보장
+- **문제:** LCD의 `Init()` 직후 아무런 감정 초기화 명령을 내리지 않아, 프로그램 시작 시 화면이 검은색 캔버스만 띄우고 있는 현상 발견.
+- **수정:** `RobotApp::Init()` 내에서 LCD 초기화가 성공하자마자 `RenderEmotion(EmotionId::kNeutral)`을 강제로 한 번 호출하여, `basic.gif`를 즉시 렌더링하도록 흐름을 수정. 이를 통해 로봇이 켜지면 곧바로 눈을 깜빡이게 됨.
