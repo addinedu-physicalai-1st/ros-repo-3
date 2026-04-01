@@ -60,8 +60,15 @@ bool RobotApp::Init() {
     if (!lcd_->Init()) {
       std::cerr << "LCD init failed\n";
     } else {
-      auto fb = RenderEmotion(EmotionId::kNeutral);
-      lcd_->DrawFrame(fb.data(), fb.size());
+      int lcd_w = lcd_->Width();
+      int lcd_h = lcd_->Height();
+      // Try startup image first, fall back to shape-based emotion
+      auto fb = LoadEmotionImage(config_.rl.emotion_dir + "/basic.gif",
+                                 lcd_w, lcd_h);
+      if (fb.empty()) {
+        fb = RenderEmotion(EmotionId::kNeutral, lcd_w, lcd_h);
+      }
+      lcd_->DrawFrameRgb565(fb.data(), fb.size());
     }
 #else
     std::cerr << "Cannot enable HAL: Project built without BUILD_HAL.\n";
@@ -167,8 +174,21 @@ void RobotApp::OnTcpMessage(int fd, const ParsedMessage& msg) {
   if (msg.msg_type == MsgType::kSetEmotion) {
     uint8_t eid = DeserializeEmotion(msg.payload);
     if (lcd_) {
-      auto fb = RenderEmotion(static_cast<EmotionId>(eid));
-      lcd_->DrawFrame(fb.data(), fb.size());
+      int lcd_w = lcd_->Width();
+      int lcd_h = lcd_->Height();
+      // Map EmotionId to GIF filename
+      static const char* kEmotionFiles[] = {
+        "basic.gif", "happy.gif", "sad.gif",
+        "angry.gif", "basic.gif", "bored.gif",
+      };
+      auto emotion = static_cast<EmotionId>(eid);
+      std::string gif_path = config_.rl.emotion_dir + "/" +
+                             kEmotionFiles[eid < 6 ? eid : 0];
+      auto fb = LoadEmotionImage(gif_path, lcd_w, lcd_h);
+      if (fb.empty()) {
+        fb = RenderEmotion(emotion, lcd_w, lcd_h);
+      }
+      lcd_->DrawFrameRgb565(fb.data(), fb.size());
     }
     return;
   }

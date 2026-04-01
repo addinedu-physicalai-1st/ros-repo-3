@@ -85,6 +85,11 @@ bool LoadRlConfig(const std::string& yaml_path, RlConfig& config) {
     if (nav["control_period_ms"]) config.control_period_ms = nav["control_period_ms"].as<double>();
   }
 
+  // emotion
+  if (auto emo = root["emotion"]) {
+    if (emo["dir"]) config.emotion_dir = emo["dir"].as<std::string>();
+  }
+
   return true;
 }
 

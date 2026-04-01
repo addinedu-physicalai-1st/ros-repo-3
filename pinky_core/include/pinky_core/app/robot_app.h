@@ -49,6 +49,9 @@ struct RlConfig {
   float goal_tolerance{kGoalTolerance};
   float lookahead_dist{kLookaheadDist};
   double control_period_ms{kControlPeriodMs};
+
+  // Emotion GIF directory (absolute or relative to working dir)
+  std::string emotion_dir{"/home/hajun/ros2_ws/ros_test/src/pinky_pro/pinky_emotion/emotion"};
 };
 
 struct RobotConfig {

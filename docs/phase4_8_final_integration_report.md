@@ -104,3 +104,70 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest tests/ -v
 ### 4.4. 로봇 앱 초기 구동 시 GIF 출력 보장
 - **문제:** LCD의 `Init()` 직후 아무런 감정 초기화 명령을 내리지 않아, 프로그램 시작 시 화면이 검은색 캔버스만 띄우고 있는 현상 발견.
 - **수정:** `RobotApp::Init()` 내에서 LCD 초기화가 성공하자마자 `RenderEmotion(EmotionId::kNeutral)`을 강제로 한 번 호출하여, `basic.gif`를 즉시 렌더링하도록 흐름을 수정. 이를 통해 로봇이 켜지면 곧바로 눈을 깜빡이게 됨.
+
+### 4.5. ONNX 모델 IR 버전 다운그레이드
+- **문제:** ONNX C++ 런타임 환경에서 최대 지원 IR 버전이 9인데 모델이 10으로 빌드되어 로드 실패( `Unsupported model IR version: 10`).
+- **수정:** 파이썬 `onnx` 패키지를 사용하여 `sac_actor.onnx`의 `ir_version` 메타데이터를 9로 수동 다운그레이드한 후 재저장.
+
+### 4.6. Lidar `getDeviceInfo` 에러 로깅 구체화
+- **문제:** `SllidarDriver`가 `Init()` 과정 중 실패할 때 구체적인 원인(타임아웃 등)을 파악하기 힘듦.
+- **수정:** 에러 로깅 부분에 SLLiDAR SDK의 `op_result` 에러 코드를 16진수(`std::hex`)로 함께 출력하도록 수정하여 하드웨어 트러블슈팅을 용이하게 함.
+
+---
+
+## 5. 추가 수정 내역 — LCD 렌더링 치명적 버그 3건 수정 (2026-04-01)
+
+### 5.1. DrawFrame RGB 포맷 불일치 (Silent Failure)
+- **문제:** `ILcdDriver::DrawFrame()`은 RGB888 버퍼(W×H×3 bytes)만 허용하는데, `RenderEmotion()`은 RGB565(W×H×2 bytes)를 반환. 크기 불일치 시 `DrawFrame`이 아무 에러 없이 `return`하여 LCD에 아무것도 그려지지 않음.
+- **수정:**
+  - `ILcdDriver` 인터페이스에 `DrawFrameRgb565()` 메서드 추가 (RGB565 버퍼 직접 SPI 전송)
+  - `Width()`, `Height()` 가상 메서드 추가 (런타임 해상도 조회)
+  - `Ili9341Lcd`에 해당 구현 추가, 크기 불일치 시 stderr 경고 출력
+  - `robot_app.cpp`에서 `DrawFrame()` → `DrawFrameRgb565()` 호출로 변경
+
+**변경 파일:**
+- `include/pinky_core/hal/interfaces.h` — `DrawFrameRgb565`, `Width`, `Height` 가상 메서드 추가
+- `include/pinky_core/hal/ili9341_lcd.h` — override 구현 선언
+- `src/hal/ili9341_lcd.cpp` — `DrawFrameRgb565()` 구현 추가
+- `src/app/robot_app.cpp` — Init(), kSetEmotion 핸들러 호출 변경
+
+### 5.2. EmotionRenderer 해상도 불일치 (240×240 vs 320×240)
+- **문제:** `emotion_renderer.cpp`의 `kWidth=240, kHeight=240` 고정값이 ILI9341 LCD의 실제 해상도(320×240)와 다름. 결과적으로 생성된 프레임버퍼 크기가 LCD와 맞지 않아 표시 불가.
+- **수정:**
+  - `RenderEmotion(EmotionId, int width, int height)` 파라미터화 (기본값 320×240)
+  - 모든 도형 프리미티브(`SetPixel`, `FillCircle`, `FillRect`, `DrawArc`, `Fill`)가 `canvas_w`, `canvas_h` 인자를 받도록 변경
+  - 얼굴 요소 좌표를 캔버스 중앙(`width/2`, `height/2`) 기준 상대 배치로 변경
+
+**변경 파일:**
+- `include/pinky_core/core/emotion_renderer.h` — 시그니처 변경, `LoadEmotionImage()` 추가
+- `src/core/emotion_renderer.cpp` — 전면 재작성
+
+### 5.3. GIF 이미지 경로 및 리사이즈
+- **문제:** 이전 수정에서 하드코딩된 상대경로 `../../pinky_pro/src/...`는 로봇의 실제 빌드 디렉토리에서 해당 위치에 파일이 존재하지 않아 항상 실패.
+- **수정:**
+  - `RlConfig`에 `emotion_dir` 필드 추가 (기본값: `/home/hajun/ros2_ws/ros_test/src/pinky_pro/pinky_emotion/emotion`)
+  - `rl_config.yaml`에 `emotion.dir` 섹션 추가, `config_loader.cpp`에서 파싱
+  - `LoadEmotionImage()`: stb_image로 GIF 첫 프레임 로드 → RGBA 4채널 디코딩 → Nearest-neighbor 리사이즈(1000×750 → 320×240) → 알파 블렌딩(투명 배경 = 검은색) → RGB565 변환
+  - `robot_app.cpp`: Init()에서 `LoadEmotionImage(emotion_dir + "/basic.gif")` 시도 → 실패 시 도형 fallback
+  - `kSetEmotion` 핸들러: EmotionId → GIF 파일명 매핑 테이블 사용
+
+**변경 파일:**
+- `include/pinky_core/app/robot_app.h` — `RlConfig::emotion_dir` 추가
+- `src/app/config_loader.cpp` — `emotion.dir` 파싱 추가
+- `pinky_core/config/rl_config.yaml` — `emotion` 섹션 추가
+- `src/app/robot_app.cpp` — Init(), kSetEmotion 핸들러 수정
+
+---
+
+## 6. 변경 파일 종합 (섹션 5 관련, 8개 파일)
+
+| 파일 | 변경 유형 | 관련 항목 |
+|------|-----------|-----------|
+| `hal/interfaces.h` | 수정 | DrawFrameRgb565, Width, Height 추가 |
+| `hal/ili9341_lcd.h` | 수정 | override 구현 |
+| `hal/ili9341_lcd.cpp` | 수정 | DrawFrameRgb565 구현 |
+| `core/emotion_renderer.h` | 수정 | 파라미터화, LoadEmotionImage 추가 |
+| `core/emotion_renderer.cpp` | **전면 재작성** | 320×240, 리사이즈, 알파 블렌딩 |
+| `app/robot_app.h` | 수정 | RlConfig::emotion_dir |
+| `app/robot_app.cpp` | 수정 | DrawFrameRgb565, GIF 로드 로직 |
+| `app/config_loader.cpp` | 수정 | emotion 섹션 파싱 |

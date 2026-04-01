@@ -27,3 +27,6 @@ navigation:
   goal_tolerance: 0.05
   lookahead_dist: 0.5
   control_period_ms: 50
+
+emotion:
+  dir: "/home/hajun/ros2_ws/ros_test/src/pinky_pro/pinky_emotion/emotion"

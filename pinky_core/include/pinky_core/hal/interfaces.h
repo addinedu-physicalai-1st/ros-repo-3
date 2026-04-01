@@ -62,13 +62,18 @@ class ILcdDriver {
  public:
   virtual ~ILcdDriver() = default;
   virtual bool Init() = 0;
-  
-  // Frame buffer is expected to be RGB565 or RGB888 depending on implementation
+
+  // Accepts RGB888 buffer (W*H*3 bytes), converts to RGB565 internally.
   virtual void DrawFrame(const uint8_t* buffer, size_t size) = 0;
 
-  // Add text and clear screen utilities for core app to display status
+  // Accepts pre-converted RGB565 buffer (W*H*2 bytes), writes directly.
+  virtual void DrawFrameRgb565(const uint8_t* buffer, size_t size) = 0;
+
   virtual void ClearScreen(uint16_t color_rgb565 = 0x0000) = 0;
   virtual void DrawText(int x, int y, const std::string& text, uint16_t fg = 0xFFFF, uint16_t bg = 0x0000) = 0;
+
+  virtual int Width() const = 0;
+  virtual int Height() const = 0;
 };
 
 }  // namespace pinky

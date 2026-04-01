@@ -38,8 +38,9 @@ bool SllidarDriver::Init() {
   }
 
   sl_lidar_response_device_info_t devinfo;
-  if (SL_IS_FAIL(drv_->getDeviceInfo(devinfo))) {
-    std::cerr << "SllidarDriver: Failed to get device info\n";
+  sl_result op_result = drv_->getDeviceInfo(devinfo);
+  if (SL_IS_FAIL(op_result)) {
+    std::cerr << "SllidarDriver: Failed to get device info, code: 0x" << std::hex << op_result << std::dec << "\n";
     return false;
   }
 

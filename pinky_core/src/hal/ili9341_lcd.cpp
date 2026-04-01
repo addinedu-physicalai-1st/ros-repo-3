@@ -272,9 +272,9 @@ void Ili9341Lcd::DrawText(int x, int y, const std::string& text,
 }
 
 void Ili9341Lcd::DrawFrame(const uint8_t* buffer, size_t size) {
-  // Assume buffer is RGB888, size = W*H*3
-  size_t expected_size = static_cast<size_t>(config_.width * config_.height * 3);
-  if (size != expected_size) {
+  size_t expected_rgb888 = static_cast<size_t>(config_.width * config_.height * 3);
+  if (size != expected_rgb888) {
+    std::cerr << "DrawFrame: expected " << expected_rgb888 << " bytes (RGB888), got " << size << "\n";
     return;
   }
 
@@ -285,15 +285,25 @@ void Ili9341Lcd::DrawFrame(const uint8_t* buffer, size_t size) {
     uint8_t b = buffer[i + 2];
 
     uint16_t color = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-    
-    // ILI9341 expects big-endian 16-bit values over SPI
-    rgb565_buffer_[j] = (color >> 8) & 0xFF;
-    rgb565_buffer_[j + 1] = color & 0xFF;
+    rgb565_buffer_[j] = static_cast<uint8_t>(color >> 8);
+    rgb565_buffer_[j + 1] = static_cast<uint8_t>(color & 0xFF);
   }
 
   SetWindow(0, 0, config_.width - 1, config_.height - 1);
-  SpiWriteCommand(0x2C); // RAMWR
+  SpiWriteCommand(0x2C);
   SpiWriteDataBlock(rgb565_buffer_.data(), rgb565_buffer_.size());
+}
+
+void Ili9341Lcd::DrawFrameRgb565(const uint8_t* buffer, size_t size) {
+  size_t expected_rgb565 = static_cast<size_t>(config_.width * config_.height * 2);
+  if (size != expected_rgb565) {
+    std::cerr << "DrawFrameRgb565: expected " << expected_rgb565 << " bytes, got " << size << "\n";
+    return;
+  }
+
+  SetWindow(0, 0, config_.width - 1, config_.height - 1);
+  SpiWriteCommand(0x2C);
+  SpiWriteDataBlock(buffer, size);
 }
 
 }  // namespace pinky
