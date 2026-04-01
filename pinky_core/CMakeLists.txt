@@ -129,7 +129,7 @@ if(BUILD_HAL)
     )
     
     # Add SDK source files directly to pinky_hal to ensure latest version is compiled
-    file(GLOB_RECURSE RPLIDAR_SDK_SRCS 
+    file(GLOB RPLIDAR_SDK_SRCS 
       "${RPLIDAR_SDK_DIR}/src/arch/linux/*.cpp"
       "${RPLIDAR_SDK_DIR}/src/arch/linux/*.c"
       "${RPLIDAR_SDK_DIR}/src/hal/*.cpp"
