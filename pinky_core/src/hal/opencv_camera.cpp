@@ -16,7 +16,7 @@ OpencvCamera::~OpencvCamera() {
 bool OpencvCamera::Init() {
 #ifdef PINKY_HAS_OPENCV
   std::cout << "OpencvCamera: Attempting libcamerasrc (GStreamer)...\n";
-  std::string pipeline1 = "libcamerasrc ! video/x-raw, width=640, height=480, framerate=15/1 ! videoconvert ! appsink";
+  std::string pipeline1 = "libcamerasrc ! video/x-raw, width=640, height=480, framerate=15/1 ! videoconvert ! video/x-raw, format=BGR ! appsink drop=true sync=false";
   cap_.open(pipeline1, cv::CAP_GSTREAMER);
   
   if (!cap_.isOpened()) {

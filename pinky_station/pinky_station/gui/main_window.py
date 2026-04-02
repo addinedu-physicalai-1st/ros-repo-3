@@ -111,7 +111,7 @@ class PinkyStationWindow(QMainWindow):
         try:
             # 24 normalized sectors (float32), denormalize to meters
             sectors = struct.unpack('<24f', msg.payload[:96])
-            max_range = 3.5  # Must match C++ kMaxLidarDist
+            max_range = 12.0  # Must match C++ kMaxLidarDist
             ranges = [s * max_range for s in sectors]
             angle_min = 0.0
             angle_increment = 2.0 * math.pi / 24.0
