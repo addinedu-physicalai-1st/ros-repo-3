@@ -34,15 +34,22 @@
     *   카메라 뷰포트의 중심이 로봇의 현재 위치(`self.robot_x`, `self.robot_y`)가 아닌 **월드 원점(0, 0)**을 향하도록 변경.
     *   디버깅 편의성을 위해 월드 원점을 표시하는 X/Y(빨강/초록) 고정 축은 유지하고, 로봇이 이 원점을 기준으로 오도메트리 이동량만큼 캔버스 상에서 움직이도록(Absolute coordinate rendering) 개선.
 
-### 2.4. 원격 조작(Teleop) 속도 조절 분리
-*   **문제**: 기존 Teleop 제어 위젯에 속도 조절 슬라이더가 1개뿐이어서 전진(Linear)과 회전(Angular) 속도를 독립적으로 제어할 수 없음.
+### 2.5. 원격 조작(Teleop) 속도 조절 분리 및 WASD 제어 추가
+*   **문제**: 기존 Teleop 제어 위젯에 속도 조절 슬라이더가 1개뿐이어서 전진(Linear)과 회전(Angular) 속도를 독립적으로 제어할 수 없었으며 마우스 클릭으로만 제어가 가능했음.
 *   **수정**:
     *   `pinky_station/gui/widgets/teleop_widget.py` 파일 수정.
     *   병진 속도 조절용 `L-Speed` 슬라이더와 회전 속도 조절용 `A-Speed` 슬라이더를 분리.
     *   회전 속도(Angular Velocity)는 0.1 ~ 3.0 rad/s 범위로 설정 가능하도록 구현.
-    *   방향키 입력 시 각 슬라이더에 설정된 독립적인 속도값이 프로토콜로 전송되도록 이벤트 매핑 갱신.
+    *   `keyPressEvent`와 `keyReleaseEvent`를 추가하여 WASD 키보드 입력만으로 로봇을 직관적으로 제어할 수 있도록 조작성 향상.
 
-### 2.5. BNO055 IMU 통신 실패 시 시스템 프리징(Freezing) 방지
+### 2.6. 순수 C++ 기반 2D 센서 퓨전(Sensor Fusion) 기능 구현
+*   **문제**: 기존 ROS 2 시스템의 EKF(`robot_localization`)를 걷어내고 C++ 구조로 이관하면서 센서 퓨전 알고리즘이 누락됨. 그 결과 로봇이 공중에 떠 있어 바퀴만 회전하는 상황에서도 GUI 상의 맵에서는 로봇이 이동하는 것으로 표시되는 문제가 발생함.
+*   **수정**:
+    *   `pinky_core/include/pinky_core/core/sensor_fusion.h` 및 `pinky_core/src/core/sensor_fusion.cpp` 신규 작성.
+    *   바퀴 오도메트리의 병진/회전 속도(v, w)와 BNO055 IMU의 자이로스코프(Yaw Rate) 데이터를 결합하는 **상보 필터(Complementary Filter)** 기반의 경량 2D 센서 퓨전 알고리즘 구현.
+    *   가중치(`alpha_=0.9`)를 적용해 IMU의 회전 정보를 90% 신뢰하도록 설정함으로써, 바퀴 슬립이나 공회전 시에도 실제 로봇의 회전 각도를 정확히 유지하도록(바퀴 헛돎 방지) 시스템 안정성 극대화.
+
+### 2.7. BNO055 IMU 통신 실패 시 시스템 프리징(Freezing) 방지
 *   **문제**: 하드웨어 결함 또는 선 빠짐 등으로 BNO055 I2C 칩 ID(`0xA0`)를 정상적으로 읽지 못하는 상황에서도 `Bno055Imu::Init()` 내부의 통신 재시도 루프(while 문)로 진입하여 스레드가 블로킹됨. 이로 인해 터미널이 `Ctrl+C` 입력에 응답하지 않는 데드락 발생.
 *   **수정**:
     *   `pinky_core/src/hal/bno055_imu.cpp` 파일 수정.
