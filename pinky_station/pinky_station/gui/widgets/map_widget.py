@@ -65,10 +65,11 @@ class MapWidget(QWidget):
         pen_grid = QPen(QColor(60, 60, 60), 1)
         painter.setPen(pen_grid)
         
-        # Calculate transform parameters (robot -> screen)
-        # We'll center on the robot for simplicity unless an offset is set
-        tx = cx + (self.offset_x - self.robot_x) * self.scale_factor
-        ty = cy - (self.offset_y - self.robot_y) * self.scale_factor
+        # Calculate transform parameters (world -> screen)
+        # Viewport centers on world origin (0, 0) + user pan offset.
+        # The robot moves on screen relative to the fixed origin.
+        tx = cx + self.offset_x * self.scale_factor
+        ty = cy - self.offset_y * self.scale_factor
         
         # Draw world origin axes (Red=X, Green=Y) (Reverted change #3-1)
         painter.setPen(QPen(QColor(255, 0, 0), 2)) # X-axis
@@ -119,8 +120,8 @@ class MapWidget(QWidget):
             cx = self.rect().width() / 2.0
             cy = self.rect().height() / 2.0
 
-            x_world = (event.position().x() - cx) / self.scale_factor - self.offset_x + self.robot_x
-            y_world = -(event.position().y() - cy) / self.scale_factor + self.offset_y + self.robot_y
+            x_world = (event.position().x() - cx) / self.scale_factor - self.offset_x
+            y_world = -(event.position().y() - cy) / self.scale_factor + self.offset_y
 
             if self.pose_mode:
                 self.sig_set_pose.emit(x_world, y_world, 0.0)
@@ -153,3 +154,4 @@ class MapWidget(QWidget):
         else:
             self.scale_factor *= 0.9
         self.update()
+

@@ -30,7 +30,7 @@ class LidarViewWidget(QWidget):
         """
         x_pts = []
         y_pts = []
-        
+
         for i, r in enumerate(ranges):
             # 0 is usually invalid reading in LiDAR or > max
             if 0.1 < r < 12.0:
@@ -39,6 +39,11 @@ class LidarViewWidget(QWidget):
                 y = r * math.sin(angle)
                 x_pts.append(x)
                 y_pts.append(y)
-                
-        # Update plot
-        self.scatter.setData(x=np.array(x_pts), y=np.array(y_pts))
+
+        if x_pts:
+            self.scatter.setData(
+                x=np.asarray(x_pts, dtype=np.float64),
+                y=np.asarray(y_pts, dtype=np.float64),
+            )
+        else:
+            self.scatter.clear()

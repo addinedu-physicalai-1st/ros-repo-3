@@ -23,13 +23,17 @@ class VideoViewWidget(QWidget):
         image = QImage()
         if image.loadFromData(jpeg_data, "JPEG"):
             pixmap = QPixmap.fromImage(image)
-            # Optionally scale pixmap to fit the label maintaining aspect ratio
-            scaled_pixmap = pixmap.scaled(
-                self.lbl_image.width(),
-                self.lbl_image.height(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.FastTransformation
-            )
-            self.lbl_image.setPixmap(scaled_pixmap)
+            w = self.lbl_image.width()
+            h = self.lbl_image.height()
+            if w > 0 and h > 0:
+                scaled_pixmap = pixmap.scaled(
+                    w, h,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.FastTransformation
+                )
+                self.lbl_image.setPixmap(scaled_pixmap)
+            else:
+                # Widget not yet laid out — set pixmap directly; Qt will scale later
+                self.lbl_image.setPixmap(pixmap)
         else:
             print("Failed to decode JPEG frame.")

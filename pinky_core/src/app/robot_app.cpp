@@ -310,6 +310,12 @@ void RobotApp::ImuLoop() {
     if (imu_) {
       ImuData data;
       if (imu_->ReadData(data)) {
+        // Feed IMU yaw rate into sensor fusion (angular_velocity.z = yaw rate)
+        {
+          std::lock_guard<std::mutex> lock(state_mutex_);
+          sensor_fusion_.UpdateImu(data.angular_velocity.z, data.stamp);
+        }
+
         std::vector<uint8_t> payload = serializer_->SerializeImu(data);
         std::vector<uint8_t> udp_pkt = serializer_->Frame(MsgType::kImu, payload);
         udp_->Send(udp_pkt);

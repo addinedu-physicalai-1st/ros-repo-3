@@ -9,6 +9,8 @@ class TeleopWidget(QGroupBox):
                  angular_speed: float = 1.0, parent=None):
         super().__init__("Teleop Control", parent)
         self._angular_speed = angular_speed
+        self._pressed_keys: set = set()
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         layout = QVBoxLayout(self)
 
         # Speed sliders layout
