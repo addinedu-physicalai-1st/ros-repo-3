@@ -116,8 +116,8 @@ class PinkyStationWindow(QMainWindow):
             angle_min = 0.0
             angle_increment = 2.0 * math.pi / 24.0
             self.lidar_view.update_scan(ranges, angle_min, angle_increment)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Lidar decode error: {e}")
 
     def _on_pose_mode_changed(self, active: bool):
         self.map_view.set_pose_mode(active)
