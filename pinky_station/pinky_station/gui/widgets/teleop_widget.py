@@ -90,3 +90,39 @@ class TeleopWidget(QGroupBox):
         linear_speed = self.slider_speed.value() / 100.0
         angular_speed = self.slider_ang_speed.value() / 100.0
         self.sig_cmd_vel.emit(linear_mult * linear_speed, angular_mult * angular_speed)
+
+    def keyPressEvent(self, event):
+        if event.isAutoRepeat():
+            return
+        key = event.key()
+        if key in (Qt.Key.Key_W, Qt.Key.Key_S, Qt.Key.Key_A, Qt.Key.Key_D):
+            self._pressed_keys.add(key)
+            self._evaluate_keys()
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.isAutoRepeat():
+            return
+        key = event.key()
+        if key in self._pressed_keys:
+            self._pressed_keys.remove(key)
+            self._evaluate_keys()
+        else:
+            super().keyReleaseEvent(event)
+
+    def _evaluate_keys(self):
+        lin = 0.0
+        ang = 0.0
+        
+        if Qt.Key.Key_W in self._pressed_keys:
+            lin += 1.0
+        if Qt.Key.Key_S in self._pressed_keys:
+            lin -= 1.0
+            
+        if Qt.Key.Key_A in self._pressed_keys:
+            ang += 1.0
+        if Qt.Key.Key_D in self._pressed_keys:
+            ang -= 1.0
+            
+        self._send_cmd(lin, ang)
