@@ -150,6 +150,12 @@ void RobotApp::OnCommand(const proto::ControlCommand& cmd, proto::CommandAck& ac
   ack.set_request_id(cmd.request_id());
   ack.set_success(true);
 
+  if (!cmd.robot_id().empty() && cmd.robot_id() != config_.robot_id) {
+    ack.set_success(false);
+    ack.set_message("Robot ID mismatch: expected " + config_.robot_id + ", got " + cmd.robot_id());
+    return;
+  }
+
   if (cmd.has_cmd_vel()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     target_cmd_vel_.linear_x = cmd.cmd_vel().linear_x();

@@ -40,6 +40,7 @@ class ZmqReceiverThread(QThread):
                         continue
                     
                     topic, data = parts
+                    print(f"[DEBUG] Received multipart topic: {topic}")
                     
                     if topic == b"T":
                         telemetry = pb.SensorTelemetry()
@@ -60,6 +61,7 @@ class ZmqReceiverThread(QThread):
                         video = pb.VideoStream()
                         video.ParseFromString(data)
                         if video.HasField("frame"):
+                            print(f"[DEBUG] Frame received for {self.robot_id}")
                             self.frame_received.emit(self.robot_id, video.frame.jpeg_data)
 
             except zmq.ZMQError:
@@ -155,19 +157,29 @@ class ZmqClient(QObject):
 
     def send_nav_goal(self, robot_id: str, x: float, y: float, theta: float):
         cmd = pb.ControlCommand()
+        cmd.robot_id = robot_id
         cmd.nav_goal.x = x
         cmd.nav_goal.y = y
         cmd.nav_goal.theta = theta
+        cmd.nav_goal.robot_id = robot_id
+        self._send_command(robot_id, cmd)
+
+    def send_nav_cancel(self, robot_id: str):
+        cmd = pb.ControlCommand()
+        cmd.robot_id = robot_id
+        cmd.nav_cancel.robot_id = robot_id
         self._send_command(robot_id, cmd)
 
     def send_cmd_vel(self, robot_id: str, linear: float, angular: float):
         cmd = pb.ControlCommand()
+        cmd.robot_id = robot_id
         cmd.cmd_vel.linear_x = linear
         cmd.cmd_vel.angular_z = angular
         self._send_command(robot_id, cmd)
 
     def set_pose(self, robot_id: str, x: float, y: float, theta: float):
         cmd = pb.ControlCommand()
+        cmd.robot_id = robot_id
         cmd.set_pose.x = x
         cmd.set_pose.y = y
         cmd.set_pose.theta = theta

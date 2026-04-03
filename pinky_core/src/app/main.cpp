@@ -61,6 +61,7 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "Initializing Pinky Core App...\n";
+  std::cout << "  Robot ID: " << config.robot_id << "\n";
   std::cout << "  REP port: " << config.rep_port
             << ", PUB port: " << config.pub_port
             << ", HAL: " << (config.enable_hal ? "ON" : "OFF") << "\n";

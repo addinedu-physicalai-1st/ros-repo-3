@@ -11,6 +11,7 @@ import math
 class MapWidget(QWidget):
     sig_set_goal = pyqtSignal(float, float, float)
     sig_set_pose = pyqtSignal(float, float, float)
+    sig_potential_waypoint_selected = pyqtSignal(bool)
 
     def __init__(self, scale: float = 50.0, parent=None):
         super().__init__(parent)
@@ -19,8 +20,8 @@ class MapWidget(QWidget):
         self.robots_pose = {} # {robot_id: (x, y, theta)}
         self.active_robot_id = None
 
-        self.goal_x = None
-        self.goal_y = None
+        self.waypoints = [] # List of (x, y)
+        self.potential_waypoint = None
 
         self.scale_factor = scale
         self.offset_x = 0.0
@@ -28,6 +29,9 @@ class MapWidget(QWidget):
 
         self.last_mouse_pos = None
         self.pose_mode = False
+        self.is_dragging_pose = False
+        self.pose_start_pt = None # (x, y) in world
+        self.pose_current_theta = 0.0
 
         self.trail: deque[tuple[float, float]] = deque(maxlen=2000)
         self._trail_skip = 0
@@ -66,10 +70,23 @@ class MapWidget(QWidget):
         self.trail.clear()
         self.update()
 
+    def add_waypoint(self):
+        if self.potential_waypoint:
+            self.waypoints.append(self.potential_waypoint)
+            self.potential_waypoint = None
+            self.sig_potential_waypoint_selected.emit(False)
+            self.update()
+
+    def clear_waypoints(self):
+        self.waypoints.clear()
+        self.potential_waypoint = None
+        self.update()
+
     def update_odom(self, robot_id: str, msg):
         try:
             if hasattr(msg, 'payload'):
-                x, y, theta, vx, vth = struct.unpack('<5f', msg.payload[:20])
+                # Extract from payload if it's a raw bytes message (though it shouldn't be here)
+                pass
             else:
                 x = msg.x
                 y = msg.y
@@ -86,100 +103,168 @@ class MapWidget(QWidget):
         except Exception:
             pass
 
+    def get_world_to_screen_transform(self):
+        cx = self.rect().width() / 2.0
+        cy = self.rect().height() / 2.0
+        
+        # World to Screen:
+        # 1. Scale
+        # 2. Invert Y (world Y is up, screen Y is down)
+        # 3. Translate by offset
+        # 4. Translate to center
+        t = QTransform()
+        t.translate(cx, cy)
+        t.scale(self.scale_factor, -self.scale_factor)
+        t.translate(self.offset_x, self.offset_y)
+        return t
+
+    def get_screen_to_world_transform(self):
+        t, success = self.get_world_to_screen_transform().inverted()
+        return t
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         painter.fillRect(self.rect(), QColor(30, 30, 30))
         
-        cx = self.rect().width() / 2.0
-        cy = self.rect().height() / 2.0
-        
-        tx = cx + self.offset_x * self.scale_factor
-        ty = cy - self.offset_y * self.scale_factor
+        world_to_screen = self.get_world_to_screen_transform()
 
+        # Draw Map
         if self.map_image and not self.map_image.isNull():
             w_m = self.map_image.width() * self.map_resolution
             h_m = self.map_image.height() * self.map_resolution
             
-            sx = tx + self.map_origin[0] * self.scale_factor
-            sy = ty - (self.map_origin[1] + h_m) * self.scale_factor
-            sw = w_m * self.scale_factor
-            sh = h_m * self.scale_factor
+            # Map top-left in world: (origin_x, origin_y + height)
+            map_rect_world = QRectF(self.map_origin[0], self.map_origin[1], w_m, h_m)
+            map_rect_screen = world_to_screen.mapRect(map_rect_world)
             
-            painter.drawImage(QRectF(sx, sy, sw, sh), self.map_image)
+            # Draw image flipped to match world coordinates
+            painter.drawImage(map_rect_screen, self.map_image)
         else:
-            pen_grid = QPen(QColor(60, 60, 60), 1)
-            painter.setPen(pen_grid)
+            # Draw simple grid if no map
+            pass
         
+        # Draw Origin Axes
         painter.setPen(QPen(QColor(255, 0, 0), 2))
-        painter.drawLine(int(tx), int(ty), int(tx + self.scale_factor), int(ty))
+        p0 = world_to_screen.map(QPointF(0, 0))
+        px = world_to_screen.map(QPointF(1, 0))
+        py = world_to_screen.map(QPointF(0, 1))
+        painter.drawLine(p0, px)
         painter.setPen(QPen(QColor(0, 255, 0), 2))
-        painter.drawLine(int(tx), int(ty), int(tx), int(ty - self.scale_factor))
+        painter.drawLine(p0, py)
 
-        robot_radius = 8
-        
-        # Draw odometry trail for active robot
+        # Draw Path (lines between waypoints)
+        if len(self.waypoints) >= 2:
+            painter.setPen(QPen(QColor(255, 255, 0, 100), 2, Qt.PenStyle.DashLine))
+            for i in range(len(self.waypoints) - 1):
+                p0 = world_to_screen.map(QPointF(*self.waypoints[i]))
+                p1 = world_to_screen.map(QPointF(*self.waypoints[i+1]))
+                painter.drawLine(p0, p1)
+
+        # Draw Odometry trail for active robot
         if len(self.trail) >= 2:
             painter.setPen(QPen(QColor(80, 200, 80, 160), 2))
             pts = list(self.trail)
             for i in range(len(pts) - 1):
-                x0 = tx + pts[i][0] * self.scale_factor
-                y0 = ty - pts[i][1] * self.scale_factor
-                x1 = tx + pts[i + 1][0] * self.scale_factor
-                y1 = ty - pts[i + 1][1] * self.scale_factor
-                painter.drawLine(int(x0), int(y0), int(x1), int(y1))
+                p0 = world_to_screen.map(QPointF(*pts[i]))
+                p1 = world_to_screen.map(QPointF(*pts[i+1]))
+                painter.drawLine(p0, p1)
 
-        # Draw all robots
-        for rid, (rx, ry, rtheta) in self.robots_pose.items():
-            painter.setPen(Qt.GlobalColor.transparent)
-            if rid == self.active_robot_id:
-                painter.setBrush(QColor(0, 200, 255)) # Cyan for active
-                pen_color = QColor(255, 255, 255)
-            else:
-                painter.setBrush(QColor(150, 150, 150)) # Gray for others
-                pen_color = QColor(200, 200, 200)
-                
-            rx_screen = tx + rx * self.scale_factor
-            ry_screen = ty - ry * self.scale_factor
-            
-            painter.drawEllipse(QPointF(rx_screen, ry_screen), robot_radius, robot_radius)
-            
-            painter.setPen(QPen(pen_color, 2))
-            hx = rx_screen + math.cos(rtheta) * robot_radius * 2
-            hy = ry_screen - math.sin(rtheta) * robot_radius * 2
-            painter.drawLine(int(rx_screen), int(ry_screen), int(hx), int(hy))
-
-        if self.goal_x is not None and self.goal_y is not None:
-            gx_screen = tx + self.goal_x * self.scale_factor
-            gy_screen = ty - self.goal_y * self.scale_factor
+        # Draw Waypoints
+        for i, (wx, wy) in enumerate(self.waypoints):
+            w_screen = world_to_screen.map(QPointF(wx, wy))
             painter.setPen(Qt.GlobalColor.transparent)
             painter.setBrush(QColor(255, 0, 100))
-            painter.drawEllipse(QPointF(gx_screen, gy_screen), 6, 6)
+            painter.drawEllipse(w_screen, 6, 6)
             
+            # Label background for clarity
+            painter.setPen(QPen(QColor(0, 0, 0, 150), 1))
+            painter.setBrush(QColor(0, 0, 0, 150))
+            label = f"GOAL {i+1}"
+            painter.drawText(int(w_screen.x() + 10), int(w_screen.y() + 5), label)
+            painter.setPen(QPen(Qt.GlobalColor.white))
+            painter.drawText(int(w_screen.x() + 10), int(w_screen.y() + 5), label)
+
+        # Draw Potential Waypoint
+        if self.potential_waypoint:
+            p_screen = world_to_screen.map(QPointF(*self.potential_waypoint))
+            painter.setPen(QPen(QColor(255, 0, 100), 2, Qt.PenStyle.DotLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(p_screen, 8, 8)
+
+        # Draw Pose Estimate Arrow (while dragging)
+        if self.is_dragging_pose and self.pose_start_pt:
+            ps_screen = world_to_screen.map(QPointF(*self.pose_start_pt))
+            painter.setPen(QPen(QColor(0, 255, 255), 3))
+            painter.setBrush(QColor(0, 255, 255, 100))
+            painter.drawEllipse(ps_screen, 10, 10)
+            
+            # Arrow head
+            arrow_len = 40
+            hx = ps_screen.x() + math.cos(-self.pose_current_theta) * arrow_len
+            hy = ps_screen.y() + math.sin(-self.pose_current_theta) * arrow_len
+            painter.drawLine(ps_screen, QPointF(hx, hy))
+            
+            # Small arrow tips
+            tip_angle = 0.5
+            tip_len = 10
+            t1x = hx + math.cos(-self.pose_current_theta + math.pi - tip_angle) * tip_len
+            t1y = hy + math.sin(-self.pose_current_theta + math.pi - tip_angle) * tip_len
+            t2x = hx + math.cos(-self.pose_current_theta + math.pi + tip_angle) * tip_len
+            t2y = hy + math.sin(-self.pose_current_theta + math.pi + tip_angle) * tip_len
+            painter.drawLine(QPointF(hx, hy), QPointF(t1x, t1y))
+            painter.drawLine(QPointF(hx, hy), QPointF(t2x, t2y))
+
+        # Draw Robots
+        robot_radius = 8
+        for rid, (rx, ry, rtheta) in self.robots_pose.items():
+            r_screen = world_to_screen.map(QPointF(rx, ry))
+            
+            if rid == self.active_robot_id:
+                # Highlight active robot with cyan glow/border
+                painter.setPen(QPen(QColor(0, 255, 255), 3))
+                painter.setBrush(QColor(0, 200, 255))
+            else:
+                painter.setPen(QPen(QColor(150, 150, 150), 1))
+                painter.setBrush(QColor(100, 100, 100))
+                
+            painter.drawEllipse(r_screen, robot_radius, robot_radius)
+            
+            # Heading line
+            painter.setPen(QPen(Qt.GlobalColor.white, 2))
+            hx = r_screen.x() + math.cos(-rtheta) * robot_radius * 2
+            hy = r_screen.y() + math.sin(-rtheta) * robot_radius * 2
+            painter.drawLine(r_screen, QPointF(hx, hy))
+
     def set_pose_mode(self, active: bool):
         self.pose_mode = active
 
     def mousePressEvent(self, event):
+        world_pt = self.get_screen_to_world_transform().map(event.position())
+
         if event.button() == Qt.MouseButton.LeftButton:
-            cx = self.rect().width() / 2.0
-            cy = self.rect().height() / 2.0
-
-            x_world = (event.position().x() - cx) / self.scale_factor - self.offset_x
-            y_world = -(event.position().y() - cy) / self.scale_factor + self.offset_y
-
             if self.pose_mode:
-                self.sig_set_pose.emit(x_world, y_world, 0.0)
+                self.is_dragging_pose = True
+                self.pose_start_pt = (world_pt.x(), world_pt.y())
+                self.pose_current_theta = 0.0
             else:
-                self.goal_x = x_world
-                self.goal_y = y_world
-                self.sig_set_goal.emit(self.goal_x, self.goal_y, 0.0)
+                self.potential_waypoint = (world_pt.x(), world_pt.y())
+                self.sig_potential_waypoint_selected.emit(True)
             self.update()
         elif event.button() == Qt.MouseButton.RightButton:
             self.last_mouse_pos = event.position()
 
     def mouseMoveEvent(self, event):
-        if self.last_mouse_pos is not None:
+        world_pt = self.get_screen_to_world_transform().map(event.position())
+
+        if self.is_dragging_pose:
+            dx = world_pt.x() - self.pose_start_pt[0]
+            dy = world_pt.y() - self.pose_start_pt[1]
+            self.pose_current_theta = math.atan2(dy, dx)
+            self.update()
+        elif self.last_mouse_pos is not None:
+            # Panning
             dx = event.position().x() - self.last_mouse_pos.x()
             dy = event.position().y() - self.last_mouse_pos.y()
             
@@ -189,7 +274,13 @@ class MapWidget(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.RightButton:
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.is_dragging_pose:
+                self.sig_set_pose.emit(self.pose_start_pt[0], self.pose_start_pt[1], self.pose_current_theta)
+                self.is_dragging_pose = False
+                self.pose_start_pt = None
+                self.update()
+        elif event.button() == Qt.MouseButton.RightButton:
             self.last_mouse_pos = None
 
     def wheelEvent(self, event):
