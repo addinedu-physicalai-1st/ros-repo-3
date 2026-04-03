@@ -1,17 +1,10 @@
-import math
-import struct
 import sys
-from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel
-)
+import math
+from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt6.QtCore import Qt
 
-# Config
 from pinky_station.config import StationConfig
-
-# Net
-from pinky_station.net.connection import ConnectionManager, ConnectionState
-from pinky_station.protocol import message_types as mt
+from pinky_station.net.zmq_client import ZmqClient
 
 # Widgets
 from pinky_station.gui.widgets.toolbar import ToolbarWidget
@@ -22,38 +15,28 @@ from pinky_station.gui.widgets.battery_widget import BatteryWidget
 from pinky_station.gui.widgets.terminal_widget import TerminalWidget
 from pinky_station.gui.widgets.map_widget import MapWidget
 
-# Workers
-from pinky_station.workers.sensor_worker import SensorWorker
-from pinky_station.workers.camera_worker import CameraWorker
-from pinky_station.workers.command_worker import CommandWorker
-from pinky_station.workers.nav_worker import NavWorker
-
 class PinkyStationWindow(QMainWindow):
     def __init__(self, config: StationConfig | None = None):
         super().__init__()
         self.cfg = config or StationConfig()
-        self.setWindowTitle("Pinky Station (PyQt6)")
+        self.setWindowTitle("Pinky Station (PyQt6) - ZMQ Edition")
 
-        self.conn = ConnectionManager(
-            tcp_port=self.cfg.connection.tcp_port,
-            udp_port=self.cfg.connection.udp_port,
+        self.zmq_client = ZmqClient(
+            pub_port=self.cfg.connection.udp_port,
+            req_port=self.cfg.connection.tcp_port
         )
-        self.conn.on_state_change = self._on_conn_state_change
-
-        self.sensor_worker = None
-        self.camera_worker = None
-        self.command_worker = None
-        self.nav_worker = None
-
+        self.zmq_client.odom_received.connect(self._on_odom)
+        self.zmq_client.lidar_received.connect(self._on_lidar)
+        self.zmq_client.battery_received.connect(self._on_battery)
+        self.zmq_client.log_received.connect(self._on_log)
+        
         # Central widget and layout
         central = QWidget()
         main_layout = QVBoxLayout(central)
         self.setCentralWidget(central)
 
         # Toolbar
-        self.toolbar = ToolbarWidget(
-            default_host=self.cfg.connection.default_host,
-        )
+        self.toolbar = ToolbarWidget(default_host=self.cfg.connection.default_host)
         self.toolbar.sig_connect_toggled.connect(self._toggle_connection)
         self.toolbar.sig_set_pose_mode.connect(self._on_pose_mode_changed)
         main_layout.addWidget(self.toolbar)
@@ -69,6 +52,8 @@ class PinkyStationWindow(QMainWindow):
             max_speed=self.cfg.teleop.max_linear_speed,
             angular_speed=self.cfg.teleop.default_angular_speed,
         )
+        self.teleop_view.sig_cmd_vel.connect(self.zmq_client.send_cmd_vel)
+        
         self.terminal_view = TerminalWidget(
             max_lines=self.cfg.terminal.max_lines,
             default_filter=self.cfg.terminal.default_filter,
@@ -82,6 +67,7 @@ class PinkyStationWindow(QMainWindow):
         # Center Panel
         center_layout = QVBoxLayout()
         self.video_view = VideoViewWidget()
+        self.zmq_client.frame_received.connect(self.video_view.update_frame)
         self.lidar_view = LidarViewWidget()
         center_layout.addWidget(QLabel("Camera view"))
         center_layout.addWidget(self.video_view, 1)
@@ -91,6 +77,8 @@ class PinkyStationWindow(QMainWindow):
         # Right Panel
         right_layout = QVBoxLayout()
         self.map_view = MapWidget(scale=self.cfg.gui.map_scale)
+        self.map_view.sig_set_goal.connect(self.zmq_client.send_nav_goal)
+        self.map_view.sig_set_pose.connect(self.zmq_client.set_pose)
         right_layout.addWidget(QLabel("2D Map & Navigation"))
         right_layout.addWidget(self.map_view, stretch=1)
         
@@ -100,100 +88,42 @@ class PinkyStationWindow(QMainWindow):
         main_layout.addLayout(content_layout)
 
     def _toggle_connection(self, ip_target: str):
-        if not ip_target: # User wants disconnect or cancel
-            self._cleanup_workers()
-            self.conn.disconnect()
+        if not ip_target:
+            self.zmq_client.stop()
+            self.toolbar.set_status(False, "DISCONNECTED", "red")
+            self.terminal_view.append_log(2, "Disconnected.")
         else:
-            self.terminal_view.append_log(2, f"Connecting to {ip_target}...")
-            self.conn.connect(ip_target)
-
-    def _on_lidar_data(self, msg):
-        try:
-            # 24 normalized sectors (float32), denormalize to meters
-            sectors = struct.unpack('<24f', msg.payload[:96])
-            max_range = 12.0  # Must match C++ kMaxLidarDist
-            ranges = [s * max_range for s in sectors]
-            angle_min = 0.0
-            angle_increment = 2.0 * math.pi / 24.0
-            self.lidar_view.update_scan(ranges, angle_min, angle_increment)
-        except Exception as e:
-            print(f"Lidar decode error: {e}")
+            self.terminal_view.append_log(2, f"Connecting to ZMQ {ip_target}...")
+            self.zmq_client.connect_to(ip_target)
+            self.toolbar.set_status(True, "CONNECTED", "green")
+            self.terminal_view.append_log(2, "Connected ZMQ sockets.")
 
     def _on_pose_mode_changed(self, active: bool):
         self.map_view.set_pose_mode(active)
 
-    def _on_conn_state_change(self, state: ConnectionState):
-        if state == ConnectionState.CONNECTED:
-            self.toolbar.set_status(True, "CONNECTED", "green")
-            self.terminal_view.append_log(2, "Connected safely.")
-            self._start_workers()
-            
-        elif state == ConnectionState.DISCONNECTED:
-            self.toolbar.set_status(False, "DISCONNECTED", "red")
-            self.terminal_view.append_log(2, "Disconnected.")
-            self._cleanup_workers()
-            
-        elif state == ConnectionState.CONNECTING:
-            self.toolbar.set_status(False, "CONNECTING", "orange")
+    def _on_odom(self, msg):
+        self.map_view.update_odom(msg)
 
-    def _start_workers(self):
-        if self.conn.udp and not self.sensor_worker:
-            self.sensor_worker = SensorWorker(self.conn.udp)
-            self.sensor_worker.sig_battery.connect(self.battery_view.update_status)
-            self.sensor_worker.sig_odom.connect(self.map_view.update_odom)
-            self.sensor_worker.sig_lidar.connect(self._on_lidar_data)
-            self.sensor_worker.start()
+    def _on_lidar(self, msg):
+        if hasattr(msg, 'sectors') and len(msg.sectors) > 0:
+            sectors = msg.sectors
+            max_range = 12.0
+            ranges = [s * max_range for s in sectors]
+            self.lidar_view.update_scan(ranges, 0.0, 2.0 * math.pi / 24.0)
+        elif hasattr(msg, 'ranges'):
+            self.lidar_view.update_scan(msg.ranges, msg.angle_min, msg.angle_increment)
 
-        if self.conn.tcp and not self.camera_worker:
-            self.camera_worker = CameraWorker(self.conn.tcp)
-            self.camera_worker.sig_frame.connect(self.video_view.update_frame)
-            self.camera_worker.start()
+    def _on_battery(self, msg):
+        class BattMock:
+            pass
+        b = BattMock()
+        b.voltage = msg.voltage
+        b.percentage = msg.percentage
+        self.battery_view.update_status(b)
 
-        if self.conn.tcp and not self.command_worker:
-            self.command_worker = CommandWorker(self.conn.tcp)
-            self.command_worker.sig_log.connect(lambda txt: self.terminal_view.append_log(4, txt))
-            self.command_worker.start()
-            
-            # Map UI events to CommandWorker TCP sends
-            self.teleop_view.sig_cmd_vel.connect(self.command_worker.send_cmd_vel)
-            self.map_view.sig_set_goal.connect(self.command_worker.send_nav_goal)
-            self.map_view.sig_set_pose.connect(self.command_worker.set_pose)
-            
-            # Sub-routing for tcp logs
-            original_tcp_cb = self.conn.tcp.on_message
-            def combined_cb(msg):
-                if msg.msg_type == mt.MSG_DEBUG_LOG:
-                    self.terminal_view.append_msg(msg)
-                if original_tcp_cb:
-                    original_tcp_cb(msg)
-            self.conn.tcp.on_message = combined_cb
-
-        # Start ROS 2 Nav2 Bridge if applicable
-        if self.command_worker and self.sensor_worker and not self.nav_worker:
-            self.nav_worker = NavWorker(self.command_worker)
-            self.nav_worker.sig_log.connect(lambda txt: self.terminal_view.append_log(2, txt))
-            self.sensor_worker.sig_odom.connect(self.nav_worker.on_odom_received)
-            self.nav_worker.start()
-
-    def _cleanup_workers(self):
-        if getattr(self, 'nav_worker', None):
-            self.nav_worker.stop()
-            self.nav_worker.wait()
-            self.nav_worker = None
-        if getattr(self, 'sensor_worker', None):
-            self.sensor_worker.stop()
-            self.sensor_worker.wait()
-            self.sensor_worker = None
-        if getattr(self, 'camera_worker', None):
-            self.camera_worker.stop()
-            self.camera_worker.wait()
-            self.camera_worker = None
-        if getattr(self, 'command_worker', None):
-            self.command_worker.stop()
-            self.command_worker.wait()
-            self.command_worker = None
+    def _on_log(self, msg):
+        self.terminal_view.append_log(msg.severity, msg.text)
 
     def closeEvent(self, event):
-        self._cleanup_workers()
-        self.conn.disconnect()
+        self.zmq_client.stop()
         event.accept()

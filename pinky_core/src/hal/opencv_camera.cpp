@@ -15,23 +15,13 @@ OpencvCamera::~OpencvCamera() {
 
 bool OpencvCamera::Init() {
 #ifdef PINKY_HAS_OPENCV
-  std::cout << "OpencvCamera: Attempting libcamerasrc (GStreamer)...\n";
-  std::string pipeline1 = "libcamerasrc ! video/x-raw, width=640, height=480, framerate=15/1 ! videoconvert ! video/x-raw, format=BGR ! appsink drop=true sync=false";
-  cap_.open(pipeline1, cv::CAP_GSTREAMER);
+  std::cout << "OpencvCamera: Attempting direct V4L2 capture on /dev/video0...\n";
+  
+  // Directly open V4L2 device 0 without GStreamer to prevent Pi 5 libcamera crashes
+  cap_.open(0, cv::CAP_V4L2);
   
   if (!cap_.isOpened()) {
-    std::cout << "OpencvCamera: Attempting v4l2src (GStreamer)...\n";
-    std::string pipeline2 = "v4l2src device=/dev/video0 ! video/x-raw, width=640, height=480, framerate=15/1 ! videoconvert ! appsink";
-    cap_.open(pipeline2, cv::CAP_GSTREAMER);
-  }
-
-  if (!cap_.isOpened()) {
-    std::cout << "OpencvCamera: GStreamer failed, trying /dev/video0 (V4L2 direct)...\n";
-    cap_.open(0, cv::CAP_V4L2);
-  }
-  
-  if (!cap_.isOpened()) {
-    std::cout << "OpencvCamera: V4L2 direct failed, trying default API...\n";
+    std::cout << "OpencvCamera: V4L2 failed, trying default API...\n";
     cap_.open(0);
   }
   
@@ -40,11 +30,15 @@ bool OpencvCamera::Init() {
     return false;
   }
   
-  if (cap_.getBackendName() != "GSTREAMER") {
-    cap_.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-    cap_.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-  }
-  std::cout << "OpencvCamera: Initialized (Backend: " << cap_.getBackendName() << ").\n";
+  // Set lower resolution for stream efficiency
+  cap_.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+  cap_.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+  cap_.set(cv::CAP_PROP_FPS, 15);
+  
+  // Optional: V4L2 pixel format
+  // cap_.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+
+  std::cout << "OpencvCamera: Initialized successfully (Backend: " << cap_.getBackendName() << ").\n";
   return true;
 #else
   std::cerr << "OpencvCamera: OpenCV not available, camera disabled.\n";
@@ -62,7 +56,7 @@ bool OpencvCamera::CaptureJpeg(std::vector<uint8_t>& jpeg_out,
     return false;
   }
 
-  // Rotate 180 degrees to match hardware orientation (as in pinkylib)
+  // Rotate 180 degrees to match hardware orientation
   cv::rotate(frame, frame, cv::ROTATE_180);
 
   width = static_cast<uint16_t>(frame.cols);

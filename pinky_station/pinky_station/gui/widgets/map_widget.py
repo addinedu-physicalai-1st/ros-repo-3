@@ -1,8 +1,10 @@
 from collections import deque
+import yaml
+from pathlib import Path
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
-from PyQt6.QtGui import QPainter, QColor, QPen, QTransform, QPolygonF
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF
+from PyQt6.QtGui import QPainter, QColor, QPen, QTransform, QPolygonF, QImage
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 import struct
 import math
 
@@ -33,11 +35,50 @@ class MapWidget(QWidget):
         # Odometry trail (world coordinates)
         self.trail: deque[tuple[float, float]] = deque(maxlen=2000)
         self._trail_skip = 0
+        
+        # ROS 2 Map properties
+        self.map_image: QImage | None = None
+        self.map_resolution = 0.05
+        self.map_origin = (0.0, 0.0)
+
+    def load_map(self, yaml_path: str | Path):
+        yaml_path = Path(yaml_path)
+        if not yaml_path.exists():
+            print(f"Map yaml {yaml_path} does not exist.")
+            return
+
+        try:
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f)
+                
+            image_name = data.get('image')
+            if not image_name:
+                return
+                
+            img_path = yaml_path.parent / image_name
+            if not img_path.exists():
+                print(f"Map image {img_path} does not exist.")
+                return
+                
+            self.map_image = QImage(str(img_path))
+            self.map_resolution = float(data.get('resolution', 0.05))
+            origin = data.get('origin', [0.0, 0.0, 0.0])
+            self.map_origin = (float(origin[0]), float(origin[1]))
+            print(f"Loaded map {img_path} with resolution {self.map_resolution} and origin {self.map_origin}")
+            self.update()
+        except Exception as e:
+            print(f"Failed to load map {yaml_path}: {e}")
 
     def update_odom(self, msg):
         try:
-            # C++ SerializeOdom: x,y,theta,vx,vth as 5 x float32 = 20 bytes
-            x, y, theta, vx, vth = struct.unpack('<5f', msg.payload[:20])
+            # We support both the raw payload (from UDP) or direct attributes (from decoded Protobuf)
+            if hasattr(msg, 'payload'):
+                # C++ SerializeOdom: x,y,theta,vx,vth as 5 x float32 = 20 bytes
+                x, y, theta, vx, vth = struct.unpack('<5f', msg.payload[:20])
+            else:
+                x = msg.x
+                y = msg.y
+                theta = msg.theta
             self.robot_x = x
             self.robot_y = y
             self.robot_theta = theta
@@ -61,15 +102,24 @@ class MapWidget(QWidget):
         cx = self.rect().width() / 2.0
         cy = self.rect().height() / 2.0
         
-        # Draw grid
-        pen_grid = QPen(QColor(60, 60, 60), 1)
-        painter.setPen(pen_grid)
-        
-        # Calculate transform parameters (world -> screen)
-        # Viewport centers on world origin (0, 0) + user pan offset.
-        # The robot moves on screen relative to the fixed origin.
         tx = cx + self.offset_x * self.scale_factor
         ty = cy - self.offset_y * self.scale_factor
+
+        # Draw Map Image if loaded
+        if self.map_image and not self.map_image.isNull():
+            w_m = self.map_image.width() * self.map_resolution
+            h_m = self.map_image.height() * self.map_resolution
+            
+            sx = tx + self.map_origin[0] * self.scale_factor
+            sy = ty - (self.map_origin[1] + h_m) * self.scale_factor
+            sw = w_m * self.scale_factor
+            sh = h_m * self.scale_factor
+            
+            painter.drawImage(QRectF(sx, sy, sw, sh), self.map_image)
+        else:
+            # Draw grid if no map
+            pen_grid = QPen(QColor(60, 60, 60), 1)
+            painter.setPen(pen_grid)
         
         # Draw world origin axes (Red=X, Green=Y) (Reverted change #3-1)
         painter.setPen(QPen(QColor(255, 0, 0), 2)) # X-axis
@@ -154,4 +204,3 @@ class MapWidget(QWidget):
         else:
             self.scale_factor *= 0.9
         self.update()
-

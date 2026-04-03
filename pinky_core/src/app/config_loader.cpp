@@ -17,8 +17,8 @@ bool LoadConfig(const std::string& yaml_path, RobotConfig& config) {
 
   // network
   if (auto net = root["network"]) {
-    if (net["tcp_port"]) config.tcp_port = net["tcp_port"].as<uint16_t>();
-    if (net["udp_port"]) config.udp_port = net["udp_port"].as<uint16_t>();
+    if (net["tcp_port"]) config.rep_port = net["tcp_port"].as<uint16_t>();
+    if (net["udp_port"]) config.pub_port = net["udp_port"].as<uint16_t>();
   }
 
   // hal

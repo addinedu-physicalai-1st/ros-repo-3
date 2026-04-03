@@ -28,11 +28,7 @@ RobotApp::RobotApp(const RobotConfig& config)
       rl_controller_(config.rl.kp_v, config.rl.kd_v,
                      config.rl.kp_w, config.rl.kd_w,
                      config.rl.v_min, config.rl.v_max, config.rl.w_max) {
-  tcp_ = std::make_shared<TcpServer>(config_.tcp_port);
-  udp_ = std::make_shared<UdpServer>(config_.udp_port);
-  conn_mgr_ = std::make_shared<ConnectionManager>(tcp_, udp_);
-  serializer_ = std::make_shared<Serializer>();
-  frame_sender_ = std::make_unique<FrameSender>(tcp_, serializer_);
+  zmq_server_ = std::make_unique<ZmqServer>(config_.rep_port, config_.pub_port);
 }
 
 RobotApp::~RobotApp() {
@@ -105,15 +101,8 @@ bool RobotApp::Init() {
 #endif
 
   // Hook network callbacks
-  tcp_->SetMessageCallback([this](int fd, const ParsedMessage& msg) {
-    this->OnTcpMessage(fd, msg);
-  });
-  tcp_->SetConnectionCallback([this](int fd, bool connected, const std::string& ip) {
-    if (connected) {
-      conn_mgr_->OnClientConnected(fd, ip);
-    } else {
-      conn_mgr_->OnClientDisconnected(fd);
-    }
+  zmq_server_->SetCommandCallback([this](const proto::ControlCommand& cmd, proto::CommandAck& ack) {
+    this->OnCommand(cmd, ack);
   });
 
   return true;
@@ -123,9 +112,7 @@ void RobotApp::Run() {
   std::cout << "Starting RobotApp...\n";
   running_.store(true);
 
-  tcp_->Start();
-  udp_->Start();
-  conn_mgr_->Start();
+  zmq_server_->Start();
 
   if (lidar_) lidar_->StartScan();
 
@@ -144,9 +131,7 @@ void RobotApp::Run() {
 void RobotApp::Stop() {
   if (!running_.exchange(false)) return;
 
-  if (tcp_) tcp_->Stop();
-  if (udp_) udp_->Stop();
-  if (conn_mgr_) conn_mgr_->Stop();
+  if (zmq_server_) zmq_server_->Stop();
 
   if (lidar_) lidar_->StopScan();
   if (motor_) motor_->SetVelocityWait(0.0, 0.0);
@@ -160,51 +145,37 @@ void RobotApp::Stop() {
   if (lcd_thread_.joinable()) lcd_thread_.join();
 }
 
-void RobotApp::OnTcpMessage(int fd, const ParsedMessage& msg) {
-  if (msg.msg_type == MsgType::kPing) {
-    uint64_t ts = DeserializePing(msg.payload);
-    conn_mgr_->OnPingReceived(fd, ts);
-    return;
-  }
+void RobotApp::OnCommand(const proto::ControlCommand& cmd, proto::CommandAck& ack) {
+  ack.set_robot_id(cmd.robot_id());
+  ack.set_request_id(cmd.request_id());
+  ack.set_success(true);
 
-  if (msg.msg_type == MsgType::kCmdVel) {
-    CmdVel cmd = DeserializeCmdVel(msg.payload);
+  if (cmd.has_cmd_vel()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    target_cmd_vel_ = cmd;
+    target_cmd_vel_.linear_x = cmd.cmd_vel().linear_x();
+    target_cmd_vel_.angular_z = cmd.cmd_vel().angular_z();
     rl_navigation_active_ = false; // Override RL on manual override
-    return;
-  }
-
-  if (msg.msg_type == MsgType::kNavGoal) {
-    NavGoal goal = DeserializeNavGoal(msg.payload);
+    ack.set_message("CmdVel applied");
+  } else if (cmd.has_nav_goal()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    current_goal_ = goal;
+    current_goal_.x = cmd.nav_goal().x();
+    current_goal_.y = cmd.nav_goal().y();
+    current_goal_.theta = cmd.nav_goal().theta();
     rl_navigation_active_ = true;
     rl_step_count_ = 0;
-    return;
-  }
-
-  if (msg.msg_type == MsgType::kNavCancel) {
+    ack.set_message("NavGoal started");
+  } else if (cmd.has_nav_cancel()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     rl_navigation_active_ = false;
     target_cmd_vel_ = {0.0f, 0.0f};
-    return;
-  }
-
-  if (msg.msg_type == MsgType::kSetEmotion) {
-    uint8_t eid = DeserializeEmotion(msg.payload);
+    ack.set_message("Nav canceled");
+  } else if (cmd.has_set_pose()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    current_emotion_ = static_cast<EmotionId>(eid);
-    return;
-  }
-
-  if (msg.msg_type == MsgType::kSetPose) {
-    Pose2D pose = DeserializeSetPose(msg.payload);
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    odom_calc_.Reset(static_cast<double>(pose.x),
-                     static_cast<double>(pose.y),
-                     static_cast<double>(pose.theta));
-    return;
+    odom_calc_.Reset(cmd.set_pose().x(), cmd.set_pose().y(), cmd.set_pose().theta());
+    ack.set_message("Pose reset");
+  } else {
+    ack.set_success(false);
+    ack.set_message("Unknown or unsupported command");
   }
 }
 
@@ -279,10 +250,16 @@ void RobotApp::MotorOdomLoop() {
         sensor_fusion_.Predict(raw_odom.vx, raw_odom.vth, js.stamp);
         current_odom_ = sensor_fusion_.GetState(js.stamp);
         
-        // Broadcast fused Odom via UDP
-        std::vector<uint8_t> odom_payload = serializer_->SerializeOdom(current_odom_);
-        std::vector<uint8_t> udp_pkt = serializer_->Frame(MsgType::kOdom, odom_payload);
-        udp_->Send(udp_pkt);
+        // Broadcast fused Odom via ZmqServer
+        proto::SensorTelemetry t;
+        auto* proto_odom = t.mutable_odom();
+        proto_odom->mutable_stamp()->set_nanoseconds(js.stamp.nanoseconds);
+        proto_odom->set_x(current_odom_.x);
+        proto_odom->set_y(current_odom_.y);
+        proto_odom->set_theta(current_odom_.theta);
+        proto_odom->set_vx(current_odom_.vx);
+        proto_odom->set_vth(current_odom_.vth);
+        zmq_server_->PublishTelemetry(t);
 
         // Apply commands to motor
         auto [rpm_l, rpm_r] = diff_drive_.VelocityToRpm(
@@ -292,9 +269,15 @@ void RobotApp::MotorOdomLoop() {
     } else {
       // Mock mode: broadcast current_odom_ continuously
       std::lock_guard<std::mutex> lock(state_mutex_);
-      std::vector<uint8_t> odom_payload = serializer_->SerializeOdom(current_odom_);
-      std::vector<uint8_t> udp_pkt = serializer_->Frame(MsgType::kOdom, odom_payload);
-      udp_->Send(udp_pkt);
+      proto::SensorTelemetry t;
+      auto* proto_odom = t.mutable_odom();
+      proto_odom->mutable_stamp()->set_nanoseconds(0); // Mock timestamp
+      proto_odom->set_x(current_odom_.x);
+      proto_odom->set_y(current_odom_.y);
+      proto_odom->set_theta(current_odom_.theta);
+      proto_odom->set_vx(current_odom_.vx);
+      proto_odom->set_vth(current_odom_.vth);
+      zmq_server_->PublishTelemetry(t);
     }
 
     auto elapsed = std::chrono::steady_clock::now() - start_time;
@@ -316,9 +299,20 @@ void RobotApp::ImuLoop() {
           sensor_fusion_.UpdateImu(data.angular_velocity.z, data.stamp);
         }
 
-        std::vector<uint8_t> payload = serializer_->SerializeImu(data);
-        std::vector<uint8_t> udp_pkt = serializer_->Frame(MsgType::kImu, payload);
-        udp_->Send(udp_pkt);
+        proto::SensorTelemetry t;
+        auto* proto_imu = t.mutable_imu();
+        proto_imu->mutable_stamp()->set_nanoseconds(data.stamp.nanoseconds);
+        proto_imu->mutable_orientation()->set_w(data.orientation.w);
+        proto_imu->mutable_orientation()->set_x(data.orientation.x);
+        proto_imu->mutable_orientation()->set_y(data.orientation.y);
+        proto_imu->mutable_orientation()->set_z(data.orientation.z);
+        proto_imu->mutable_angular_velocity()->set_x(data.angular_velocity.x);
+        proto_imu->mutable_angular_velocity()->set_y(data.angular_velocity.y);
+        proto_imu->mutable_angular_velocity()->set_z(data.angular_velocity.z);
+        proto_imu->mutable_linear_acceleration()->set_x(data.linear_acceleration.x);
+        proto_imu->mutable_linear_acceleration()->set_y(data.linear_acceleration.y);
+        proto_imu->mutable_linear_acceleration()->set_z(data.linear_acceleration.z);
+        zmq_server_->PublishTelemetry(t);
       }
     }
 
@@ -336,9 +330,14 @@ void RobotApp::AdcLoop() {
       uint16_t c0, c1, c2, c3, c4;
       if (adc_->ReadAll(c0, c1, c2, c3, c4)) {
         BatteryState batt = battery_monitor_.Update(c4);
-        std::vector<uint8_t> b_payload = serializer_->SerializeBattery(batt);
-        std::vector<uint8_t> udp_pkt = serializer_->Frame(MsgType::kBattery, b_payload);
-        udp_->Send(udp_pkt);
+        
+        proto::SensorTelemetry t;
+        auto* proto_batt = t.mutable_battery();
+        proto_batt->mutable_stamp()->set_nanoseconds(batt.stamp.nanoseconds);
+        proto_batt->set_voltage(batt.voltage);
+        proto_batt->set_percentage(batt.percentage);
+        proto_batt->set_status(batt.status);
+        zmq_server_->PublishTelemetry(t);
         
         // Can also publish IR/US sensors here...
       }
@@ -357,9 +356,13 @@ void RobotApp::LidarLoop() {
         LidarSectors sectors = lidar_processor_.Process(scan);
         
         // Stream back to PC
-        std::vector<uint8_t> sec_payload = serializer_->SerializeLidar24(sectors);
-        std::vector<uint8_t> udp_pkt = serializer_->Frame(MsgType::kLidar24, sec_payload);
-        udp_->Send(udp_pkt);
+        proto::SensorTelemetry t;
+        auto* proto_sectors = t.mutable_lidar_sectors();
+        proto_sectors->mutable_stamp()->set_nanoseconds(sectors.stamp.nanoseconds);
+        for (float s : sectors.sectors) {
+          proto_sectors->add_sectors(s);
+        }
+        zmq_server_->PublishTelemetry(t);
 
         // RL Inference if active
         bool is_active;
@@ -410,14 +413,13 @@ void RobotApp::CameraLoop() {
       uint16_t width = 0;
       uint16_t height = 0;
       if (camera_->CaptureJpeg(jpeg, width, height)) {
-        CameraFrame frame;
-        frame.width = width;
-        frame.height = height;
-        frame.jpeg_data = std::move(jpeg);
-
-        std::vector<uint8_t> payload = serializer_->SerializeCameraFrame(frame);
-        std::vector<uint8_t> tcp_pkt = serializer_->Frame(MsgType::kCameraFrame, payload);
-        tcp_->Broadcast(tcp_pkt);
+        proto::VideoStream v;
+        auto* frame = v.mutable_frame();
+        frame->set_width(width);
+        frame->set_height(height);
+        frame->set_jpeg_data(jpeg.data(), jpeg.size());
+        
+        zmq_server_->PublishVideo(v);
       }
     }
 
