@@ -4,14 +4,15 @@ from pinky_station.protocol import pinky_pb2 as pb
 import time
 
 class ZmqReceiverThread(QThread):
-    odom_received = pyqtSignal(object)
-    lidar_received = pyqtSignal(object)
-    battery_received = pyqtSignal(object)
-    log_received = pyqtSignal(object)
-    frame_received = pyqtSignal(bytes)  # emits jpeg bytes
+    odom_received = pyqtSignal(str, object)
+    lidar_received = pyqtSignal(str, object)
+    battery_received = pyqtSignal(str, object)
+    log_received = pyqtSignal(str, object)
+    frame_received = pyqtSignal(str, bytes)  # emits jpeg bytes
 
-    def __init__(self, host: str, port: int):
+    def __init__(self, robot_id: str, host: str, port: int):
         super().__init__()
+        self.robot_id = robot_id
         self.host = host
         self.port = port
         self.running = False
@@ -45,21 +46,21 @@ class ZmqReceiverThread(QThread):
                         telemetry.ParseFromString(data)
                         
                         if telemetry.HasField("odom"):
-                            self.odom_received.emit(telemetry.odom)
+                            self.odom_received.emit(self.robot_id, telemetry.odom)
                         elif telemetry.HasField("lidar_scan"):
-                            self.lidar_received.emit(telemetry.lidar_scan)
+                            self.lidar_received.emit(self.robot_id, telemetry.lidar_scan)
                         elif telemetry.HasField("lidar_sectors"):
-                            self.lidar_received.emit(telemetry.lidar_sectors)
+                            self.lidar_received.emit(self.robot_id, telemetry.lidar_sectors)
                         elif telemetry.HasField("battery"):
-                            self.battery_received.emit(telemetry.battery)
+                            self.battery_received.emit(self.robot_id, telemetry.battery)
                         elif telemetry.HasField("log"):
-                            self.log_received.emit(telemetry.log)
+                            self.log_received.emit(self.robot_id, telemetry.log)
                             
                     elif topic == b"V":
                         video = pb.VideoStream()
                         video.ParseFromString(data)
                         if video.HasField("frame"):
-                            self.frame_received.emit(video.frame.jpeg_data)
+                            self.frame_received.emit(self.robot_id, video.frame.jpeg_data)
 
             except zmq.ZMQError:
                 pass
@@ -74,86 +75,100 @@ class ZmqReceiverThread(QThread):
         self.wait()
 
 class ZmqClient(QObject):
-    odom_received = pyqtSignal(object)
-    lidar_received = pyqtSignal(object)
-    battery_received = pyqtSignal(object)
-    log_received = pyqtSignal(object)
-    frame_received = pyqtSignal(bytes)
+    odom_received = pyqtSignal(str, object)
+    lidar_received = pyqtSignal(str, object)
+    battery_received = pyqtSignal(str, object)
+    log_received = pyqtSignal(str, object)
+    frame_received = pyqtSignal(str, bytes)
 
-    def __init__(self, pub_port=9200, req_port=9100):
+    def __init__(self):
         super().__init__()
-        self.host = "127.0.0.1"
-        self.pub_port = pub_port
-        self.req_port = req_port
         self.ctx = zmq.Context.instance()
-        self.req_socket = None
-        self.receiver = None
+        self.robots = {}
         self.request_id = 0
 
-    def connect_to(self, host: str):
-        self.stop()
-        self.host = host
+    def add_robot(self, robot_id: str, host: str, req_port: int, pub_port: int):
+        if robot_id in self.robots:
+            self.remove_robot(robot_id)
+            
+        req_socket = self.ctx.socket(zmq.REQ)
+        req_socket.connect(f"tcp://{host}:{req_port}")
         
-        self.req_socket = self.ctx.socket(zmq.REQ)
-        self.req_socket.connect(f"tcp://{self.host}:{self.req_port}")
+        receiver = ZmqReceiverThread(robot_id, host, pub_port)
+        receiver.odom_received.connect(self.odom_received.emit)
+        receiver.lidar_received.connect(self.lidar_received.emit)
+        receiver.battery_received.connect(self.battery_received.emit)
+        receiver.log_received.connect(self.log_received.emit)
+        receiver.frame_received.connect(self.frame_received.emit)
+        receiver.start()
         
-        self.receiver = ZmqReceiverThread(self.host, self.pub_port)
-        self.receiver.odom_received.connect(self.odom_received.emit)
-        self.receiver.lidar_received.connect(self.lidar_received.emit)
-        self.receiver.battery_received.connect(self.battery_received.emit)
-        self.receiver.log_received.connect(self.log_received.emit)
-        self.receiver.frame_received.connect(self.frame_received.emit)
-        self.receiver.start()
+        self.robots[robot_id] = {
+            'req_socket': req_socket,
+            'host': host,
+            'req_port': req_port,
+            'pub_port': pub_port,
+            'receiver': receiver
+        }
+
+    def remove_robot(self, robot_id: str):
+        if robot_id in self.robots:
+            robot_data = self.robots.pop(robot_id)
+            receiver = robot_data['receiver']
+            req_socket = robot_data['req_socket']
+            if receiver:
+                receiver.stop()
+            if req_socket:
+                req_socket.close()
 
     def stop(self):
-        if self.receiver:
-            self.receiver.stop()
-            self.receiver = None
-        if self.req_socket:
-            self.req_socket.close()
-            self.req_socket = None
+        for robot_id in list(self.robots.keys()):
+            self.remove_robot(robot_id)
 
-    def _send_command(self, cmd: pb.ControlCommand):
-        if not self.req_socket:
+    def _send_command(self, robot_id: str, cmd: pb.ControlCommand):
+        if robot_id not in self.robots:
             return False
+            
+        robot_data = self.robots[robot_id]
+        req_socket = robot_data['req_socket']
             
         self.request_id += 1
         cmd.request_id = self.request_id
         try:
-            self.req_socket.send(cmd.SerializeToString(), zmq.NOBLOCK)
+            req_socket.send(cmd.SerializeToString(), zmq.NOBLOCK)
             poller = zmq.Poller()
-            poller.register(self.req_socket, zmq.POLLIN)
+            poller.register(req_socket, zmq.POLLIN)
             if poller.poll(500):
-                ack_data = self.req_socket.recv()
+                ack_data = req_socket.recv()
                 ack = pb.CommandAck()
                 ack.ParseFromString(ack_data)
                 return ack.success
             else:
                 # Timeout: recreate socket
-                self.req_socket.close()
-                self.req_socket = self.ctx.socket(zmq.REQ)
-                self.req_socket.connect(f"tcp://{self.host}:{self.req_port}")
+                req_socket.close()
+                new_req_socket = self.ctx.socket(zmq.REQ)
+                new_req_socket.connect(f"tcp://{robot_data['host']}:{robot_data['req_port']}")
+                self.robots[robot_id]['req_socket'] = new_req_socket
                 return False
         except Exception as e:
-            print(f"Failed to send command: {e}")
+            print(f"Failed to send command to {robot_id}: {e}")
             return False
 
-    def send_nav_goal(self, x: float, y: float, theta: float):
+    def send_nav_goal(self, robot_id: str, x: float, y: float, theta: float):
         cmd = pb.ControlCommand()
         cmd.nav_goal.x = x
         cmd.nav_goal.y = y
         cmd.nav_goal.theta = theta
-        self._send_command(cmd)
+        self._send_command(robot_id, cmd)
 
-    def send_cmd_vel(self, linear: float, angular: float):
+    def send_cmd_vel(self, robot_id: str, linear: float, angular: float):
         cmd = pb.ControlCommand()
         cmd.cmd_vel.linear_x = linear
         cmd.cmd_vel.angular_z = angular
-        self._send_command(cmd)
+        self._send_command(robot_id, cmd)
 
-    def set_pose(self, x: float, y: float, theta: float):
+    def set_pose(self, robot_id: str, x: float, y: float, theta: float):
         cmd = pb.ControlCommand()
         cmd.set_pose.x = x
         cmd.set_pose.y = y
         cmd.set_pose.theta = theta
-        self._send_command(cmd)
+        self._send_command(robot_id, cmd)

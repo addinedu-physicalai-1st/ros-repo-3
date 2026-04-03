@@ -252,6 +252,7 @@ void RobotApp::MotorOdomLoop() {
         
         // Broadcast fused Odom via ZmqServer
         proto::SensorTelemetry t;
+        t.set_robot_id(config_.robot_id);
         auto* proto_odom = t.mutable_odom();
         proto_odom->mutable_stamp()->set_nanoseconds(js.stamp.nanoseconds);
         proto_odom->set_x(current_odom_.x);
@@ -270,6 +271,7 @@ void RobotApp::MotorOdomLoop() {
       // Mock mode: broadcast current_odom_ continuously
       std::lock_guard<std::mutex> lock(state_mutex_);
       proto::SensorTelemetry t;
+      t.set_robot_id(config_.robot_id);
       auto* proto_odom = t.mutable_odom();
       proto_odom->mutable_stamp()->set_nanoseconds(0); // Mock timestamp
       proto_odom->set_x(current_odom_.x);
@@ -300,6 +302,7 @@ void RobotApp::ImuLoop() {
         }
 
         proto::SensorTelemetry t;
+        t.set_robot_id(config_.robot_id);
         auto* proto_imu = t.mutable_imu();
         proto_imu->mutable_stamp()->set_nanoseconds(data.stamp.nanoseconds);
         proto_imu->mutable_orientation()->set_w(data.orientation.w);
@@ -332,6 +335,7 @@ void RobotApp::AdcLoop() {
         BatteryState batt = battery_monitor_.Update(c4);
         
         proto::SensorTelemetry t;
+        t.set_robot_id(config_.robot_id);
         auto* proto_batt = t.mutable_battery();
         proto_batt->mutable_stamp()->set_nanoseconds(batt.stamp.nanoseconds);
         proto_batt->set_voltage(batt.voltage);
@@ -357,6 +361,7 @@ void RobotApp::LidarLoop() {
         
         // Stream back to PC
         proto::SensorTelemetry t;
+        t.set_robot_id(config_.robot_id);
         auto* proto_sectors = t.mutable_lidar_sectors();
         proto_sectors->mutable_stamp()->set_nanoseconds(sectors.stamp.nanoseconds);
         for (float s : sectors.sectors) {
@@ -414,6 +419,7 @@ void RobotApp::CameraLoop() {
       uint16_t height = 0;
       if (camera_->CaptureJpeg(jpeg, width, height)) {
         proto::VideoStream v;
+        v.set_robot_id(config_.robot_id);
         auto* frame = v.mutable_frame();
         frame->set_width(width);
         frame->set_height(height);

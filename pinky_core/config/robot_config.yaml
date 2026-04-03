@@ -35,6 +35,7 @@ hal:
     gpio_bl: 18
 
 robot:
+  id: "7"
   wheel_radius: 0.028
   wheel_base: 0.0961
   encoder_ppr: 4096

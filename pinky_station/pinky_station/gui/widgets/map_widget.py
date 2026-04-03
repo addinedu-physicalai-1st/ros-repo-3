@@ -8,7 +8,6 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 import struct
 import math
 
-# Simple Map Widget that draws robot position based on odometry
 class MapWidget(QWidget):
     sig_set_goal = pyqtSignal(float, float, float)
     sig_set_pose = pyqtSignal(float, float, float)
@@ -17,26 +16,22 @@ class MapWidget(QWidget):
         super().__init__(parent)
         self.setMinimumSize(400, 400)
 
-        self.robot_x = 0.0
-        self.robot_y = 0.0
-        self.robot_theta = 0.0
+        self.robots_pose = {} # {robot_id: (x, y, theta)}
+        self.active_robot_id = None
 
         self.goal_x = None
         self.goal_y = None
 
-        # Simple panning/zooming variables
-        self.scale_factor = scale  # pixels per meter
+        self.scale_factor = scale
         self.offset_x = 0.0
         self.offset_y = 0.0
 
         self.last_mouse_pos = None
         self.pose_mode = False
 
-        # Odometry trail (world coordinates)
         self.trail: deque[tuple[float, float]] = deque(maxlen=2000)
         self._trail_skip = 0
         
-        # ROS 2 Map properties
         self.map_image: QImage | None = None
         self.map_resolution = 0.05
         self.map_origin = (0.0, 0.0)
@@ -44,7 +39,6 @@ class MapWidget(QWidget):
     def load_map(self, yaml_path: str | Path):
         yaml_path = Path(yaml_path)
         if not yaml_path.exists():
-            print(f"Map yaml {yaml_path} does not exist.")
             return
 
         try:
@@ -57,36 +51,37 @@ class MapWidget(QWidget):
                 
             img_path = yaml_path.parent / image_name
             if not img_path.exists():
-                print(f"Map image {img_path} does not exist.")
                 return
                 
             self.map_image = QImage(str(img_path))
             self.map_resolution = float(data.get('resolution', 0.05))
             origin = data.get('origin', [0.0, 0.0, 0.0])
             self.map_origin = (float(origin[0]), float(origin[1]))
-            print(f"Loaded map {img_path} with resolution {self.map_resolution} and origin {self.map_origin}")
             self.update()
-        except Exception as e:
-            print(f"Failed to load map {yaml_path}: {e}")
+        except Exception:
+            pass
 
-    def update_odom(self, msg):
+    def set_active_robot(self, robot_id: str):
+        self.active_robot_id = robot_id
+        self.trail.clear()
+        self.update()
+
+    def update_odom(self, robot_id: str, msg):
         try:
-            # We support both the raw payload (from UDP) or direct attributes (from decoded Protobuf)
             if hasattr(msg, 'payload'):
-                # C++ SerializeOdom: x,y,theta,vx,vth as 5 x float32 = 20 bytes
                 x, y, theta, vx, vth = struct.unpack('<5f', msg.payload[:20])
             else:
                 x = msg.x
                 y = msg.y
                 theta = msg.theta
-            self.robot_x = x
-            self.robot_y = y
-            self.robot_theta = theta
-            # Record trail at ~5Hz (odom arrives at 50Hz)
-            self._trail_skip += 1
-            if self._trail_skip >= 10:
-                self._trail_skip = 0
-                self.trail.append((x, y))
+                
+            self.robots_pose[robot_id] = (x, y, theta)
+            
+            if robot_id == self.active_robot_id:
+                self._trail_skip += 1
+                if self._trail_skip >= 10:
+                    self._trail_skip = 0
+                    self.trail.append((x, y))
             self.update()
         except Exception:
             pass
@@ -95,17 +90,14 @@ class MapWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Fill background
         painter.fillRect(self.rect(), QColor(30, 30, 30))
         
-        # Center of widget
         cx = self.rect().width() / 2.0
         cy = self.rect().height() / 2.0
         
         tx = cx + self.offset_x * self.scale_factor
         ty = cy - self.offset_y * self.scale_factor
 
-        # Draw Map Image if loaded
         if self.map_image and not self.map_image.isNull():
             w_m = self.map_image.width() * self.map_resolution
             h_m = self.map_image.height() * self.map_resolution
@@ -117,33 +109,17 @@ class MapWidget(QWidget):
             
             painter.drawImage(QRectF(sx, sy, sw, sh), self.map_image)
         else:
-            # Draw grid if no map
             pen_grid = QPen(QColor(60, 60, 60), 1)
             painter.setPen(pen_grid)
         
-        # Draw world origin axes (Red=X, Green=Y) (Reverted change #3-1)
-        painter.setPen(QPen(QColor(255, 0, 0), 2)) # X-axis
+        painter.setPen(QPen(QColor(255, 0, 0), 2))
         painter.drawLine(int(tx), int(ty), int(tx + self.scale_factor), int(ty))
-        painter.setPen(QPen(QColor(0, 255, 0), 2)) # Y-axis
+        painter.setPen(QPen(QColor(0, 255, 0), 2))
         painter.drawLine(int(tx), int(ty), int(tx), int(ty - self.scale_factor))
 
-        # Draw robot
-        painter.setPen(Qt.GlobalColor.transparent)
-        painter.setBrush(QColor(0, 200, 255))
-        
-        rx_screen = tx + self.robot_x * self.scale_factor
-        ry_screen = ty - self.robot_y * self.scale_factor
-        
         robot_radius = 8
-        painter.drawEllipse(QPointF(rx_screen, ry_screen), robot_radius, robot_radius)
         
-        # Draw robot heading
-        painter.setPen(QPen(QColor(255, 255, 255), 2))
-        hx = rx_screen + math.cos(self.robot_theta) * robot_radius * 2
-        hy = ry_screen - math.sin(self.robot_theta) * robot_radius * 2
-        painter.drawLine(int(rx_screen), int(ry_screen), int(hx), int(hy))
-
-        # Draw odometry trail
+        # Draw odometry trail for active robot
         if len(self.trail) >= 2:
             painter.setPen(QPen(QColor(80, 200, 80, 160), 2))
             pts = list(self.trail)
@@ -154,7 +130,26 @@ class MapWidget(QWidget):
                 y1 = ty - pts[i + 1][1] * self.scale_factor
                 painter.drawLine(int(x0), int(y0), int(x1), int(y1))
 
-        # Draw goal if set
+        # Draw all robots
+        for rid, (rx, ry, rtheta) in self.robots_pose.items():
+            painter.setPen(Qt.GlobalColor.transparent)
+            if rid == self.active_robot_id:
+                painter.setBrush(QColor(0, 200, 255)) # Cyan for active
+                pen_color = QColor(255, 255, 255)
+            else:
+                painter.setBrush(QColor(150, 150, 150)) # Gray for others
+                pen_color = QColor(200, 200, 200)
+                
+            rx_screen = tx + rx * self.scale_factor
+            ry_screen = ty - ry * self.scale_factor
+            
+            painter.drawEllipse(QPointF(rx_screen, ry_screen), robot_radius, robot_radius)
+            
+            painter.setPen(QPen(pen_color, 2))
+            hx = rx_screen + math.cos(rtheta) * robot_radius * 2
+            hy = ry_screen - math.sin(rtheta) * robot_radius * 2
+            painter.drawLine(int(rx_screen), int(ry_screen), int(hx), int(hy))
+
         if self.goal_x is not None and self.goal_y is not None:
             gx_screen = tx + self.goal_x * self.scale_factor
             gy_screen = ty - self.goal_y * self.scale_factor

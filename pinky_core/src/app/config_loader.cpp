@@ -32,6 +32,7 @@ bool LoadConfig(const std::string& yaml_path, RobotConfig& config) {
 
   // robot physics — overrides compiled-in constants when present
   if (auto robot = root["robot"]) {
+    if (robot["id"])            config.robot_id      = robot["id"].as<std::string>();
     if (robot["wheel_radius"])  config.wheel_radius  = robot["wheel_radius"].as<double>();
     if (robot["wheel_base"])    config.wheel_base    = robot["wheel_base"].as<double>();
     if (robot["max_rpm"])       config.max_rpm       = robot["max_rpm"].as<double>();

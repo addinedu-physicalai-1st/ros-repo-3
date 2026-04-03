@@ -57,6 +57,7 @@ struct RobotConfig {
   double wheel_radius{kWheelRadius};
   double wheel_base{kWheelBase};
   double max_rpm{kMaxRpm};
+  std::string robot_id{"7"};
 
   RlConfig rl;
 };
