@@ -13,6 +13,7 @@ from pinky_station.gui.widgets.teleop_widget import TeleopWidget
 from pinky_station.gui.widgets.battery_widget import BatteryWidget
 from pinky_station.gui.widgets.terminal_widget import TerminalWidget
 from pinky_station.gui.widgets.map_widget import MapWidget
+from pinky_station.gui.widgets.lidar_view import LidarViewWidget
 from pinky_station.workers.nav_worker import NavWorker
 
 class PinkyStationWindow(QMainWindow):
@@ -28,7 +29,9 @@ class PinkyStationWindow(QMainWindow):
         self.zmq_client.odom_received.connect(self._on_odom)
         self.zmq_client.battery_received.connect(self._on_battery)
         self.zmq_client.log_received.connect(self._on_log)
+        self.zmq_client.lidar_received.connect(self._on_lidar)
         self.zmq_client.frame_received.connect(self._on_frame)
+        self.zmq_client.sig_command_failed.connect(self._on_command_failed)
         
         # Central widget and layout (need to initialize terminal_view first for nav_worker signals)
         central = QWidget()
@@ -87,8 +90,11 @@ class PinkyStationWindow(QMainWindow):
         # Center Panel
         center_layout = QVBoxLayout()
         self.video_view = VideoViewWidget()
+        self.lidar_view = LidarViewWidget()
         center_layout.addWidget(QLabel("Camera view"))
-        center_layout.addWidget(self.video_view, 1)
+        center_layout.addWidget(self.video_view, 3)
+        center_layout.addWidget(QLabel("LiDAR scan"))
+        center_layout.addWidget(self.lidar_view, 2)
         
         # Right Panel
         right_layout = QVBoxLayout()
@@ -134,11 +140,25 @@ class PinkyStationWindow(QMainWindow):
             self.zmq_client.send_cmd_vel(self.active_robot_id, linear, angular)
 
     def _on_set_goal(self, x: float, y: float, theta: float):
-        if self.active_robot_id and self.active_robot_id in self.map_view.robots_pose:
-            # Request global path from current robot pose to goal
+        if not self.active_robot_id:
+            return
+
+        has_nav2 = (self.nav_worker.ros_node is not None)
+        has_pose = (self.active_robot_id in self.map_view.robots_pose)
+
+        if has_nav2 and has_pose:
+            # Use Nav2 global planner to compute path then sequence waypoints
             start_pose = self.map_view.robots_pose[self.active_robot_id]
-            self.terminal_view.append_log(2, "Requesting global path from Nav2...")
+            self.terminal_view.append_log(2, f"Requesting Nav2 path to ({x:.2f}, {y:.2f})...")
             self.nav_worker.request_global_path(start_pose, (x, y, theta))
+        else:
+            # Nav2 not available or no odom yet — send nav_goal directly to robot RL controller
+            self.map_view.waypoints = [(x, y)]
+            self.current_waypoint_idx = 0
+            self.zmq_client.send_nav_goal(self.active_robot_id, x, y, theta)
+            self.terminal_view.append_log(
+                2, f"Direct nav goal → ({x:.2f}, {y:.2f}) [Nav2 {'no odom' if not has_pose else 'unavailable'}]"
+            )
             
     def _on_path_ready(self, waypoints):
         self.map_view.waypoints = waypoints
@@ -214,6 +234,21 @@ class PinkyStationWindow(QMainWindow):
             b.voltage = msg.voltage
             b.percentage = msg.percentage
             self.battery_view.update_status(b)
+
+    def _on_lidar(self, robot_id: str, msg):
+        if robot_id != self.active_robot_id:
+            return
+        try:
+            # msg is either LidarScan or LidarSectors proto
+            if hasattr(msg, 'ranges') and len(msg.ranges) > 0:
+                self.lidar_view.update_scan(list(msg.ranges), msg.angle_min, msg.angle_increment)
+            elif hasattr(msg, 'sectors') and len(msg.sectors) > 0:
+                self.lidar_view.update_sectors(list(msg.sectors))
+        except Exception:
+            pass
+
+    def _on_command_failed(self, robot_id: str, reason: str):
+        self.terminal_view.append_log(3, f"[{robot_id}] Command failed: {reason}")
 
     def _on_log(self, robot_id: str, msg):
         self.terminal_view.append_log(msg.severity, f"[{robot_id}] {msg.text}")

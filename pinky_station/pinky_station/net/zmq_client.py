@@ -40,8 +40,6 @@ class ZmqReceiverThread(QThread):
                         continue
                     
                     topic, data = parts
-                    print(f"[DEBUG] Received multipart topic: {topic}")
-                    
                     if topic == b"T":
                         telemetry = pb.SensorTelemetry()
                         telemetry.ParseFromString(data)
@@ -61,7 +59,6 @@ class ZmqReceiverThread(QThread):
                         video = pb.VideoStream()
                         video.ParseFromString(data)
                         if video.HasField("frame"):
-                            print(f"[DEBUG] Frame received for {self.robot_id}")
                             self.frame_received.emit(self.robot_id, video.frame.jpeg_data)
 
             except zmq.ZMQError:
@@ -82,6 +79,7 @@ class ZmqClient(QObject):
     battery_received = pyqtSignal(str, object)
     log_received = pyqtSignal(str, object)
     frame_received = pyqtSignal(str, bytes)
+    sig_command_failed = pyqtSignal(str, str)  # robot_id, reason
 
     def __init__(self):
         super().__init__()
@@ -150,9 +148,10 @@ class ZmqClient(QObject):
                 new_req_socket = self.ctx.socket(zmq.REQ)
                 new_req_socket.connect(f"tcp://{robot_data['host']}:{robot_data['req_port']}")
                 self.robots[robot_id]['req_socket'] = new_req_socket
+                self.sig_command_failed.emit(robot_id, "Command timeout — robot not responding")
                 return False
         except Exception as e:
-            print(f"Failed to send command to {robot_id}: {e}")
+            self.sig_command_failed.emit(robot_id, str(e))
             return False
 
     def send_nav_goal(self, robot_id: str, x: float, y: float, theta: float):

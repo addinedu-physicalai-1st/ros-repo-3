@@ -47,3 +47,28 @@ class LidarViewWidget(QWidget):
             )
         else:
             self.scatter.clear()
+
+    def update_sectors(self, sectors: list):
+        """
+        sectors: list of 24 normalized distance values (0-1 range, /3.5m)
+        Each sector covers 15 degrees.
+        """
+        x_pts = []
+        y_pts = []
+        sector_angle = 2 * math.pi / len(sectors)
+        for i, s in enumerate(sectors):
+            # Denormalize: sectors are normalized by /3.5m
+            r = s * 3.5
+            if r < 0.05:
+                continue
+            angle = i * sector_angle
+            x_pts.append(r * math.cos(angle))
+            y_pts.append(r * math.sin(angle))
+
+        if x_pts:
+            self.scatter.setData(
+                x=np.asarray(x_pts, dtype=np.float64),
+                y=np.asarray(y_pts, dtype=np.float64),
+            )
+        else:
+            self.scatter.clear()

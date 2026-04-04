@@ -51,6 +51,7 @@ void ZmqServer::PublishTelemetry(const proto::SensorTelemetry& telemetry) {
   if (!running_) return;
   std::string buf;
   if (telemetry.SerializeToString(&buf)) {
+    std::lock_guard<std::mutex> lock(pub_mutex_);
     zmq::message_t topic("T", 1);
     pub_sock_.send(topic, zmq::send_flags::sndmore);
 
@@ -64,6 +65,7 @@ void ZmqServer::PublishVideo(const proto::VideoStream& video) {
   if (!running_) return;
   std::string buf;
   if (video.SerializeToString(&buf)) {
+    std::lock_guard<std::mutex> lock(pub_mutex_);
     zmq::message_t topic("V", 1);
     pub_sock_.send(topic, zmq::send_flags::sndmore);
 

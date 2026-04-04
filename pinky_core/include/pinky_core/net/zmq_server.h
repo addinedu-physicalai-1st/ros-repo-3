@@ -2,6 +2,7 @@
 
 #include <string>
 #include <functional>
+#include <mutex>
 #include <thread>
 #include <atomic>
 #include <zmq.hpp>
@@ -33,6 +34,7 @@ class ZmqServer {
   zmq::socket_t rep_sock_;
   zmq::socket_t pub_sock_;
 
+  std::mutex pub_mutex_;
   std::atomic<bool> running_{false};
   std::thread rep_thread_;
   CommandCallback cmd_callback_;

@@ -94,13 +94,14 @@ bool RobotApp::Init() {
     std::cerr << "OnnxActor load failed: " << e.what() << "\n";
   }
 
-  std::cout << "Starting Python camera server using uv run...\n";
+  std::cout << "Starting Python camera server...\n";
   camera_server_pid_ = fork();
   if (camera_server_pid_ == 0) {
-    // Use uv run to ensure the virtual environment is correctly used
-    // and provide the correct path relative to the project root
-    execlp("uv", "uv", "run", "../src/hal/pinky_camera_server.py", nullptr);
-    std::cerr << "Failed to start pinky_camera_server.py via uv run (Is uv installed?)\n";
+    // Try uv first (--project .. points to pinky_core/pyproject.toml)
+    execlp("uv", "uv", "run", "--project", "..", "../src/hal/pinky_camera_server.py", nullptr);
+    // uv not found or failed — fall back to system python3
+    execlp("python3", "python3", "../src/hal/pinky_camera_server.py", nullptr);
+    std::cerr << "Failed to start camera server (uv and python3 both unavailable)\n";
     exit(1);
   } else if (camera_server_pid_ < 0) {
 
