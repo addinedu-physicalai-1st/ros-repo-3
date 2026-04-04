@@ -12,8 +12,9 @@ from pinky_station.protocol import message_types as mt
 try:
     import rclpy
     from rclpy.node import Node
-    from nav_msgs.msg import Odometry
+    from nav_msgs.msg import Odometry, Path
     from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
+    from nav2_msgs.srv import ComputePathToPose
     from tf2_ros import TransformBroadcaster
     HAS_ROS2 = True
     Node_Base = Node
@@ -33,6 +34,9 @@ class RosBridgeNode(Node_Base):
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
+        # Service Clients
+        self.path_client = self.create_client(ComputePathToPose, 'compute_path_to_pose')
+
         # Subscribers
         self.cmd_vel_sub = self.create_subscription(
             Twist, 'cmd_vel', self._cmd_vel_callback, 10)
@@ -47,18 +51,35 @@ class RosBridgeNode(Node_Base):
             self.cmd_worker.send_cmd_vel(msg.linear.x, msg.angular.z)
 
     def _goal_callback(self, msg: PoseStamped):
-        # Forward ROS 2 goal_pose to the robot
+        # This is triggered when a goal is set via RViz or other ROS tools
         if self.cmd_worker:
             x = msg.pose.position.x
             y = msg.pose.position.y
             
-            # Extract yaw from quaternion
             q = msg.pose.orientation
             siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
             cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
             yaw = math.atan2(siny_cosp, cosy_cosp)
             
             self.cmd_worker.send_nav_goal(x, y, yaw)
+
+    def request_path(self, start_pose, goal_pose, callback):
+        if not self.path_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().error('Nav2 ComputePathToPose service not available')
+            return False
+
+        req = ComputePathToPose.Request()
+        req.start.header.frame_id = 'map'
+        req.start.pose.position.x = start_pose[0]
+        req.start.pose.position.y = start_pose[1]
+        
+        req.goal.header.frame_id = 'map'
+        req.goal.pose.position.x = goal_pose[0]
+        req.goal.pose.position.y = goal_pose[1]
+
+        future = self.path_client.call_async(req)
+        future.add_done_callback(callback)
+        return True
 
     def publish_odom(self, x, y, theta, vx, vth):
         now = self.get_clock().now().to_msg()
@@ -72,7 +93,6 @@ class RosBridgeNode(Node_Base):
         t.transform.translation.y = y
         t.transform.translation.z = 0.0
         
-        # yaw to quaternion
         t.transform.rotation.z = math.sin(theta / 2.0)
         t.transform.rotation.w = math.cos(theta / 2.0)
         
@@ -97,9 +117,9 @@ class RosBridgeNode(Node_Base):
 class NavWorker(QThread):
     """
     QThread that spins the ROS 2 Bridge Node.
-    Connects PyQt signals (from SensorWorker) to ROS 2 publishers.
     """
     sig_log = pyqtSignal(str)
+    sig_path_ready = pyqtSignal(list) # List of (x, y) waypoints
 
     def __init__(self, command_worker, parent=None):
         super().__init__(parent)
@@ -113,16 +133,13 @@ class NavWorker(QThread):
             return
 
         try:
-            # Check if rclpy is already initialized
             if not rclpy.ok():
                 rclpy.init()
 
             self.ros_node = RosBridgeNode(self.command_worker)
             self._running = True
-            
             self.sig_log.emit("Nav2 Bridge (ROS 2) started successfully.")
             
-            # Spin until stopped
             while self._running and rclpy.ok():
                 rclpy.spin_once(self.ros_node, timeout_sec=0.1)
 
@@ -137,14 +154,49 @@ class NavWorker(QThread):
         self._running = False
         self.wait()
 
-    def on_odom_received(self, msg: ParsedMessage):
-        """Slot to receive Odom messages from SensorWorker."""
-        if not self._running or not self.ros_node:
+    def request_global_path(self, start_pose, goal_pose):
+        if not self.ros_node:
             return
             
+        def path_callback(future):
+            try:
+                response = future.result()
+                if response and response.path:
+                    # Sample path every N points to create waypoints (e.g., every 5th point)
+                    # Or based on distance. Let's take points at ~0.3m intervals.
+                    waypoints = []
+                    last_pt = None
+                    for pose in response.path.poses:
+                        pt = (pose.pose.position.x, pose.pose.position.y)
+                        if last_pt is None:
+                            waypoints.append(pt)
+                            last_pt = pt
+                        else:
+                            dist = math.sqrt((pt[0]-last_pt[0])**2 + (pt[1]-last_pt[1])**2)
+                            if dist > 0.3: # 30cm interval
+                                waypoints.append(pt)
+                                last_pt = pt
+                    
+                    # Ensure final goal is included
+                    final_goal = (goal_pose[0], goal_pose[1])
+                    if waypoints[-1] != final_goal:
+                        waypoints.append(final_goal)
+                        
+                    self.sig_path_ready.emit(waypoints)
+                else:
+                    self.sig_log.emit("Nav2 failed to find a path.")
+            except Exception as e:
+                self.sig_log.emit(f"Path request error: {e}")
+
+        self.ros_node.request_path(start_pose, goal_pose, path_callback)
+
+    def on_odom_received(self, robot_id, msg):
+        """Slot to receive Odom data."""
+        if not self._running or not self.ros_node:
+            return
+        
+        # In this multi-robot version, msg is already an object from ZmqClient
         try:
-            # C++ SerializeOdom: x, y, theta, vx, vth (5 x float32)
-            x, y, theta, vx, vth = struct.unpack('<5f', msg.payload[:20])
-            self.ros_node.publish_odom(x, y, theta, vx, vth)
+            self.ros_node.publish_odom(msg.x, msg.y, msg.theta, msg.vx, msg.vth)
         except Exception as e:
-            self.sig_log.emit(f"Failed to publish odom to ROS: {e}")
+            print(f"Failed to publish odom to ROS: {e}")

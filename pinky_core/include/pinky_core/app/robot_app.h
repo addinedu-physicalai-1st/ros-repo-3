@@ -4,6 +4,7 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <sys/types.h>
 
 #include "pinky_core/hal/interfaces.h"
 #include "pinky_core/net/zmq_server.h"
@@ -14,9 +15,7 @@
 #include "pinky_core/core/lidar_processor.h"
 #include "pinky_core/core/led_controller.h"
 #include "pinky_core/core/emotion_renderer.h"
-#ifdef PINKY_HAS_ONNXRUNTIME
 #include "pinky_core/inference/onnx_actor.h"
-#endif
 #include "pinky_core/inference/observation_builder.h"
 #include "pinky_core/inference/rl_controller.h"
 
@@ -99,9 +98,9 @@ class RobotApp {
   SensorFusion sensor_fusion_;
   BatteryMonitor battery_monitor_{kBattVMin, kBattVMax, kBattLowThresh};
   LidarProcessor lidar_processor_{kLidarSectors, kMaxLidarDist};
-#ifdef PINKY_HAS_ONNXRUNTIME
+
   std::unique_ptr<OnnxActor> onnx_actor_;
-#endif
+
   ObservationBuilder obs_builder_{kGoalDistScale, kMaxSteps};
   RlController rl_controller_{kKpV, kKdV, kKpW, kKdW, kVMin, kVMax, kWMax};
 
@@ -120,6 +119,8 @@ class RobotApp {
   std::thread lidar_thread_;
   std::thread camera_thread_;
   std::thread lcd_thread_;
+
+  pid_t camera_server_pid_{0};
 };
 
 }  // namespace pinky

@@ -70,7 +70,7 @@ endif()
 set(CORE_SOURCES
   src/common/logger.cpp
   src/net/zmq_server.cpp
-  src/hal/opencv_camera.cpp
+  src/hal/ipc_camera.cpp
   src/core/diff_drive.cpp
   src/core/odometry.cpp
   src/core/sensor_fusion.cpp

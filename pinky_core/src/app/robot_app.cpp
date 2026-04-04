@@ -3,9 +3,12 @@
 #include <iostream>
 #include <chrono>
 #include <cmath>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include "pinky_core/common/constants.h"
 #include "pinky_core/core/emotion_renderer.h"
-#include "pinky_core/hal/opencv_camera.h"
+#include "pinky_core/hal/ipc_camera.h"
 
 #ifdef BUILD_HAL
 #include "pinky_core/hal/dynamixel_motor.h"
@@ -78,27 +81,41 @@ bool RobotApp::Init() {
     }
 #else
     std::cerr << "Cannot enable HAL: Project built without BUILD_HAL.\n";
+
     return false;
 #endif
   } else {
     std::cout << "HAL disabled (Mock/PC mode).\n";
   }
 
-#ifdef PINKY_HAS_ONNXRUNTIME
   try {
     onnx_actor_ = std::make_unique<OnnxActor>(config_.rl.model_path);
   } catch (const std::exception& e) {
     std::cerr << "OnnxActor load failed: " << e.what() << "\n";
   }
-#endif
 
-#ifdef PINKY_HAS_OPENCV
-  camera_ = std::make_unique<OpencvCamera>();
-  if (!camera_->Init()) {
-    std::cerr << "Camera init failed\n";
-    camera_.reset();
+  std::cout << "Starting Python camera server using uv run...\n";
+  camera_server_pid_ = fork();
+  if (camera_server_pid_ == 0) {
+    // Use uv run to ensure the virtual environment is correctly used
+    // and provide the correct path relative to the project root
+    execlp("uv", "uv", "run", "../src/hal/pinky_camera_server.py", nullptr);
+    std::cerr << "Failed to start pinky_camera_server.py via uv run (Is uv installed?)\n";
+    exit(1);
+  } else if (camera_server_pid_ < 0) {
+
+    std::cerr << "Fork failed for camera server\n";
+    camera_server_pid_ = 0;
+  } else {
+    std::cout << "Camera server started with PID: " << camera_server_pid_ << "\n";
   }
-#endif
+
+  // Using IpcCamera to bypass Pi 5 ISP issues
+  camera_ = std::make_unique<IpcCamera>();
+  if (!camera_->Init()) {
+    std::cerr << "IpcCamera init failed (Ensure pinky_camera_server.py is running)\n";
+    // We don't necessarily reset camera_ here, it might reconnect later
+  }
 
   // Hook network callbacks
   zmq_server_->SetCommandCallback([this](const proto::ControlCommand& cmd, proto::CommandAck& ack) {
@@ -143,6 +160,14 @@ void RobotApp::Stop() {
   if (lidar_thread_.joinable()) lidar_thread_.join();
   if (camera_thread_.joinable()) camera_thread_.join();
   if (lcd_thread_.joinable()) lcd_thread_.join();
+
+  if (camera_server_pid_ > 0) {
+    std::cout << "Stopping Python camera server (PID: " << camera_server_pid_ << ")...\n";
+    kill(camera_server_pid_, SIGINT);
+    int status;
+    waitpid(camera_server_pid_, &status, 0);
+    camera_server_pid_ = 0;
+  }
 }
 
 void RobotApp::OnCommand(const proto::ControlCommand& cmd, proto::CommandAck& ack) {
@@ -389,7 +414,6 @@ void RobotApp::LidarLoop() {
           step = rl_step_count_++;
         }
 
-#ifdef PINKY_HAS_ONNXRUNTIME
         if (is_active && onnx_actor_) {
           obs_builder_.SetGoal(goal.x, goal.y);
           std::array<float, 28> obs = obs_builder_.Build(sectors, odom, step);
@@ -404,7 +428,6 @@ void RobotApp::LidarLoop() {
             target_cmd_vel_ = cmd;
           }
         }
-#endif
       } else {
         std::this_thread::sleep_for(50ms);
       }
