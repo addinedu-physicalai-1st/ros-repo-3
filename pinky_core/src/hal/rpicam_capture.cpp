@@ -13,6 +13,8 @@
 
 namespace pinky {
 
+RpicamCapture::RpicamCapture() : cfg_(Config{}) {}
+
 RpicamCapture::RpicamCapture(const Config& cfg) : cfg_(cfg) {}
 
 RpicamCapture::~RpicamCapture() {

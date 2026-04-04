@@ -20,7 +20,8 @@ class RpicamCapture : public ICameraDriver {
     bool rotate_180{true};  // maps to --hflip --vflip
   };
 
-  explicit RpicamCapture(const Config& cfg = Config{});
+  RpicamCapture();
+  explicit RpicamCapture(const Config& cfg);
   ~RpicamCapture() override;
 
   bool Init() override;
