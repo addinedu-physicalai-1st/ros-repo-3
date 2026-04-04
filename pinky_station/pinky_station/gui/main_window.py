@@ -116,16 +116,26 @@ class PinkyStationWindow(QMainWindow):
             self.map_view.load_map(file_path)
 
     def _on_add_robot(self, robot_id: str, ip: str):
-        self.terminal_view.append_log(2, f"Adding robot {robot_id} at {ip}...")
+        self.terminal_view.append_log(2, f"Connecting to robot '{robot_id}' at {ip}...")
         self.zmq_client.add_robot(
-            robot_id, 
-            ip, 
-            req_port=self.cfg.connection.tcp_port, 
-            pub_port=self.cfg.connection.udp_port
+            robot_id,
+            ip,
+            req_port=self.cfg.connection.tcp_port,
+            pub_port=self.cfg.connection.udp_port,
         )
+
+        ok, msg = self.zmq_client.verify_connection(robot_id)
+        if not ok:
+            self.zmq_client.remove_robot(robot_id)
+            self.terminal_view.append_log(3, f"Connection FAILED: {msg}")
+            self.toolbar.set_status("Connection Failed", "red")
+            return
+
+        self.toolbar.confirm_robot_added(robot_id)
         if not self.active_robot_id:
             self._on_active_robot_changed(robot_id)
         self.toolbar.set_status(f"{len(self.zmq_client.robots)} Connected", "green")
+        self.terminal_view.append_log(2, f"Robot '{robot_id}' connected successfully.")
 
     def _on_active_robot_changed(self, robot_id: str):
         self.active_robot_id = robot_id
@@ -140,6 +150,7 @@ class PinkyStationWindow(QMainWindow):
             self.zmq_client.send_cmd_vel(self.active_robot_id, linear, angular)
 
     def _on_set_goal(self, x: float, y: float, theta: float):
+        """Called programmatically (e.g., Nav2 bridge). NOT from map clicks."""
         if not self.active_robot_id:
             return
 
@@ -147,17 +158,12 @@ class PinkyStationWindow(QMainWindow):
         has_pose = (self.active_robot_id in self.map_view.robots_pose)
 
         if has_nav2 and has_pose:
-            # Use Nav2 global planner to compute path then sequence waypoints
             start_pose = self.map_view.robots_pose[self.active_robot_id]
             self.terminal_view.append_log(2, f"Requesting Nav2 path to ({x:.2f}, {y:.2f})...")
             self.nav_worker.request_global_path(start_pose, (x, y, theta))
         else:
-            # Nav2 not available or no odom yet — send nav_goal directly to robot RL controller
-            self.map_view.waypoints = [(x, y)]
-            self.current_waypoint_idx = 0
-            self.zmq_client.send_nav_goal(self.active_robot_id, x, y, theta)
             self.terminal_view.append_log(
-                2, f"Direct nav goal → ({x:.2f}, {y:.2f}) [Nav2 {'no odom' if not has_pose else 'unavailable'}]"
+                2, "Nav2 unavailable. Use Add Waypoint + Start for navigation."
             )
             
     def _on_path_ready(self, waypoints):
@@ -168,6 +174,11 @@ class PinkyStationWindow(QMainWindow):
     def _on_set_pose(self, x: float, y: float, theta: float):
         if self.active_robot_id:
             self.zmq_client.set_pose(self.active_robot_id, x, y, theta)
+            self.terminal_view.append_log(
+                2, f"2D Pose set: ({x:.2f}, {y:.2f}, {math.degrees(theta):.1f}deg)"
+            )
+        # Auto-exit pose mode
+        self.toolbar.btn_pose.setChecked(False)
 
     def _on_nav_start(self):
         if self.active_robot_id and self.map_view.waypoints:
@@ -203,7 +214,11 @@ class PinkyStationWindow(QMainWindow):
             self.active_robot_id = None
             self.current_waypoint_idx = -1
         self.terminal_view.append_log(2, f"Robot {robot_id} disconnected")
-        self.toolbar.set_status(f"{len(self.zmq_client.robots)} Connected", "green")
+        count = len(self.zmq_client.robots)
+        self.toolbar.set_status(
+            f"{count} Connected" if count else "Disconnected",
+            "green" if count else "gray",
+        )
 
     def _on_odom(self, robot_id: str, msg):
         self.map_view.update_odom(robot_id, msg)

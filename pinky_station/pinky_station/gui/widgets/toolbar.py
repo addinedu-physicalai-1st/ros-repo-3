@@ -29,7 +29,8 @@ class ToolbarWidget(QWidget):
         self.btn_disconnect.setFixedWidth(100)
         self.btn_disconnect.clicked.connect(self._on_disconnect_clicked)
 
-        self.input_id = QLineEdit("robot1")
+        self.input_id = QLineEdit()
+        self.input_id.setPlaceholderText("Robot ID")
         self.input_id.setFixedWidth(100)
         self.input_ip = QLineEdit(default_host)
         self.input_ip.setFixedWidth(120)
@@ -84,23 +85,22 @@ class ToolbarWidget(QWidget):
 
         self.btn_start.clicked.connect(self.sig_nav_start.emit)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
-        self.btn_reset.clicked.connect(self.sig_nav_reset.emit)
+        self.btn_reset.clicked.connect(self._on_reset_clicked)
         self.btn_add_waypoint.clicked.connect(self.sig_add_waypoint.emit)
 
     def _on_add_robot_clicked(self):
         robot_id = self.input_id.text().strip()
         ip = self.input_ip.text().strip()
-        if not robot_id:
-            return # Mandatory ID check
-        if ip:
-            exists = False
-            for i in range(self.cb_active_robot.count()):
-                if self.cb_active_robot.itemText(i) == robot_id:
-                    exists = True
-                    break
-            if not exists:
-                self.cb_active_robot.addItem(robot_id)
-            self.sig_add_robot.emit(robot_id, ip)
+        if not robot_id or not ip:
+            return
+        self.sig_add_robot.emit(robot_id, ip)
+
+    def confirm_robot_added(self, robot_id: str):
+        """Called by MainWindow after successful connection verification."""
+        for i in range(self.cb_active_robot.count()):
+            if self.cb_active_robot.itemText(i) == robot_id:
+                return
+        self.cb_active_robot.addItem(robot_id)
 
     def _on_disconnect_clicked(self):
         active_id = self.cb_active_robot.currentText()
@@ -116,6 +116,10 @@ class ToolbarWidget(QWidget):
         else:
             self.sig_nav_resume.emit()
             self.btn_stop.setText("Stop")
+
+    def _on_reset_clicked(self):
+        self.btn_stop.setText("Stop")
+        self.sig_nav_reset.emit()
 
     def set_status(self, text: str, color: str):
         self.lbl_status.setText(text)

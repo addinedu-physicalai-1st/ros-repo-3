@@ -249,10 +249,8 @@ class MapWidget(QWidget):
                 self.pose_start_pt = (world_pt.x(), world_pt.y())
                 self.pose_current_theta = 0.0
             else:
-                # Single click: mark as potential waypoint AND emit direct goal signal
                 self.potential_waypoint = (world_pt.x(), world_pt.y())
                 self.sig_potential_waypoint_selected.emit(True)
-                self.sig_set_goal.emit(world_pt.x(), world_pt.y(), 0.0)
             self.update()
         elif event.button() == Qt.MouseButton.RightButton:
             self.last_mouse_pos = event.position()

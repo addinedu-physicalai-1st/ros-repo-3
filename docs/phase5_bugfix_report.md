@@ -121,7 +121,69 @@ uv sync
 
 ---
 
-## 3. 변경 파일 목록
+## 3. 2차 수정 (실제 로봇 테스트 후)
+
+### Bug 7: `UnboundLocalError: HAS_PICAMERA` — 카메라 서버 실행 실패
+
+**원인:** `pinky_camera_server.py`의 `main()` 함수에서 `HAS_PICAMERA = False`로 재할당하면서 Python이 이를 지역 변수로 인식. 이전 `if HAS_PICAMERA:` 접근 시 `UnboundLocalError` 발생.
+
+**수정:** `main()` 함수 시작부에 `global HAS_PICAMERA` 선언 추가.
+
+---
+
+### Bug 8: Robot ID 불일치 — 모든 명령(nav/pose/cmd_vel) 실패
+
+**증상:** GUI에서 teleop, 2D Pose, 자율주행 등 모든 명령이 로봇에 도달하지 않음.
+
+**원인:** GUI의 Robot ID 입력 필드가 `"robot1"`로 하드코딩되어 있고, 로봇의 설정 ID는 `"7"`. 로봇은 ID 불일치 시 모든 명령을 거부:
+```cpp
+if (!cmd.robot_id().empty() && cmd.robot_id() != config_.robot_id) {
+    ack.set_success(false);
+    ack.set_message("Robot ID mismatch: expected 7, got robot1");
+}
+```
+
+**수정:**
+- `toolbar.py`: Robot ID 입력 필드를 비워두고 placeholder 텍스트("Robot ID") 표시
+- `zmq_client.py`: `verify_connection(robot_id)` 메서드 추가 — `cmd_vel(0,0)` 전송 후 ack 확인
+- `main_window.py`: `_on_add_robot`에서 연결 후 verify → 실패 시 에러 메시지 표시 + 연결 해제
+- `toolbar.py`: `confirm_robot_added(robot_id)` — 검증 성공 후에만 combo box에 추가
+
+---
+
+### Bug 9: Waypoint 덮어쓰기 — Add Waypoint이 1~2개만 작동
+
+**원인:** 이전 수정에서 맵 좌클릭마다 `sig_set_goal.emit()`을 추가했는데, 이것이 `_on_set_goal`을 트리거하여 `self.map_view.waypoints = [(x, y)]`로 전체 리스트를 매번 덮어씀.
+
+**수정:**
+- `map_widget.py`: 좌클릭에서 `sig_set_goal.emit()` 제거 (potential_waypoint만 설정)
+- `main_window.py`: `_on_set_goal`에서 waypoints 직접 교체 로직 제거
+
+**올바른 Navigation 플로우:**
+1. 맵 좌클릭 → potential_waypoint 설정 ("Add Waypoint" 버튼 활성화)
+2. "Add Waypoint" 클릭 → waypoints 리스트에 추가 (여러 개 가능)
+3. "Start" 클릭 → 로봇에 첫 번째 waypoint `send_nav_goal` 전송 → RL 컨트롤러 활성화
+4. 도착 시 자동으로 다음 waypoint 전송 (odom 기반 30cm 판정)
+
+---
+
+### Bug 10: 2D Pose Estimate 버튼 자동 해제 안됨
+
+**원인:** 드래그 완료 후 `sig_set_pose` 발신되지만, 버튼의 checked 상태가 유지됨.
+
+**수정:** `_on_set_pose` 에서 `self.toolbar.btn_pose.setChecked(False)` 호출하여 자동 해제.
+
+---
+
+### Bug 11: Stop→Reset 시 버튼 텍스트 초기화 안됨
+
+**원인:** "Stop" 클릭 후 버튼 텍스트가 "Resume"으로 변경되지만, "Reset" 클릭 시 초기화되지 않음.
+
+**수정:** `toolbar.py`에 `_on_reset_clicked()` 메서드 추가 — `btn_stop.setText("Stop")` 후 `sig_nav_reset.emit()`.
+
+---
+
+## 4. 변경 파일 목록 (전체)
 
 | 파일 | 변경 유형 | 내용 |
 |------|-----------|------|
@@ -129,14 +191,16 @@ uv sync
 | `pinky_core/include/pinky_core/net/zmq_server.h` | 수정 | `pub_mutex_` 추가 |
 | `pinky_core/src/net/zmq_server.cpp` | 수정 | PublishTelemetry/PublishVideo mutex 보호 |
 | `pinky_core/src/app/robot_app.cpp` | 수정 | 카메라 서버 launch 커맨드 개선 |
-| `pinky_station/pinky_station/net/zmq_client.py` | 수정 | debug print 제거, `sig_command_failed` 추가 |
-| `pinky_station/pinky_station/gui/widgets/map_widget.py` | 수정 | 좌클릭 시 `sig_set_goal` emit |
+| `pinky_core/src/hal/pinky_camera_server.py` | 수정 | `global HAS_PICAMERA` 선언 추가 |
+| `pinky_station/pinky_station/net/zmq_client.py` | 수정 | debug print 제거, `sig_command_failed` 추가, `verify_connection` 추가 |
+| `pinky_station/pinky_station/gui/widgets/map_widget.py` | 수정 | `sig_set_goal` emit 제거 (waypoint 덮어쓰기 방지) |
+| `pinky_station/pinky_station/gui/widgets/toolbar.py` | 수정 | ID 필드 빈 기본값, `confirm_robot_added`, Stop→Reset 초기화 |
 | `pinky_station/pinky_station/gui/widgets/lidar_view.py` | 수정 | `update_sectors()` 메서드 추가 |
-| `pinky_station/pinky_station/gui/main_window.py` | 수정 | LiDAR 뷰 추가, nav fallback, 오류 피드백 |
+| `pinky_station/pinky_station/gui/main_window.py` | 수정 | LiDAR 뷰, 연결 검증, Pose 자동 해제, nav 로직 수정 |
 
 ---
 
-## 4. 남은 작업 (계획서 기준 미구현 항목)
+## 5. 남은 작업 (계획서 기준 미구현 항목)
 
 계획서(`bubbly-waddling-whistle.md`) 대비 아직 구현되지 않은 주요 항목:
 

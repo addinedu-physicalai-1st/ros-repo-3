@@ -11,6 +11,8 @@ except ImportError:
     HAS_PICAMERA = False
 
 def main():
+    global HAS_PICAMERA
+
     context = zmq.Context()
     socket = context.socket(zmq.PUB)
     # Use TCP for localhost communication
@@ -27,7 +29,7 @@ def main():
         except Exception as e:
             print(f"Failed to start Picamera2: {e}")
             HAS_PICAMERA = False
-    
+
     if not HAS_PICAMERA:
         print("Picamera2 not available or failed. Mocking camera with random noise...")
 

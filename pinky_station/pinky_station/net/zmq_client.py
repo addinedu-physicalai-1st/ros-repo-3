@@ -154,6 +154,42 @@ class ZmqClient(QObject):
             self.sig_command_failed.emit(robot_id, str(e))
             return False
 
+    def verify_connection(self, robot_id: str) -> tuple[bool, str]:
+        """Send a harmless cmd_vel(0,0) to verify the robot_id is accepted."""
+        if robot_id not in self.robots:
+            return (False, "Not connected")
+
+        robot_data = self.robots[robot_id]
+        req_socket = robot_data['req_socket']
+
+        cmd = pb.ControlCommand()
+        cmd.robot_id = robot_id
+        cmd.cmd_vel.linear_x = 0.0
+        cmd.cmd_vel.angular_z = 0.0
+
+        self.request_id += 1
+        cmd.request_id = self.request_id
+        try:
+            req_socket.send(cmd.SerializeToString(), zmq.NOBLOCK)
+            poller = zmq.Poller()
+            poller.register(req_socket, zmq.POLLIN)
+            if poller.poll(2000):
+                ack_data = req_socket.recv()
+                ack = pb.CommandAck()
+                ack.ParseFromString(ack_data)
+                if ack.success:
+                    return (True, "Connected")
+                return (False, ack.message or "Robot rejected command")
+            else:
+                # Timeout — recreate socket for future use
+                req_socket.close()
+                new_req = self.ctx.socket(zmq.REQ)
+                new_req.connect(f"tcp://{robot_data['host']}:{robot_data['req_port']}")
+                self.robots[robot_id]['req_socket'] = new_req
+                return (False, "Connection timeout — robot not responding")
+        except Exception as e:
+            return (False, str(e))
+
     def send_nav_goal(self, robot_id: str, x: float, y: float, theta: float):
         cmd = pb.ControlCommand()
         cmd.robot_id = robot_id
