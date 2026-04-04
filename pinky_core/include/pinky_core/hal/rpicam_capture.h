@@ -17,7 +17,8 @@ class RpicamCapture : public ICameraDriver {
     int width{640};
     int height{480};
     int fps{15};
-    bool rotate_180{true};  // maps to --hflip --vflip
+    int quality{85};         // MJPEG quality (1-100)
+    bool rotate_180{true};   // maps to --hflip --vflip
   };
 
   RpicamCapture();
