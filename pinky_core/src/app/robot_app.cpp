@@ -114,7 +114,13 @@ void RobotApp::Run() {
 
   zmq_server_->Start();
 
-  if (lidar_) lidar_->StartScan();
+  if (lidar_) {
+    if (lidar_->StartScan()) {
+      std::cout << "LiDAR scan started.\n";
+    } else {
+      std::cerr << "LiDAR scan start FAILED — P-control only.\n";
+    }
+  }
 
   motor_thread_ = std::thread(&RobotApp::MotorOdomLoop, this);
   imu_thread_ = std::thread(&RobotApp::ImuLoop, this);
@@ -374,13 +380,16 @@ void RobotApp::AdcLoop() {
 
 void RobotApp::LidarLoop() {
   int scan_count = 0;
+  int fail_count = 0;
   while (running_.load()) {
     if (lidar_) {
       LidarScan scan;
       if (lidar_->GetScan(scan)) {
         if (scan_count == 0) {
-          std::cout << "[LIDAR] First scan received (" << scan.ranges.size() << " points)\n";
+          std::cout << "[LIDAR] First scan received (" << scan.ranges.size()
+                    << " points, after " << fail_count << " failures)\n";
         }
+        fail_count = 0;
         ++scan_count;
 
         LidarSectors sectors = lidar_processor_.Process(scan);
@@ -402,6 +411,11 @@ void RobotApp::LidarLoop() {
         }
         zmq_server_->PublishTelemetry(t);
       } else {
+        ++fail_count;
+        if (fail_count == 1 || fail_count == 10 || fail_count == 100 ||
+            (fail_count % 500 == 0)) {
+          std::cerr << "[LIDAR] GetScan failed (count=" << fail_count << ")\n";
+        }
         std::this_thread::sleep_for(50ms);
       }
     } else {
@@ -475,6 +489,10 @@ void RobotApp::NavLoop() {
         target_cmd_vel_ = cmd;
       } else {
         // P-control fallback: works without LiDAR
+        // WARNING: no obstacle avoidance — use reduced speed
+        constexpr float kPCtrlVMax = 0.12f;  // safe speed without LiDAR
+        constexpr float kPCtrlWMax = 0.8f;
+
         float goal_angle = std::atan2(dy, dx);
         float angle_diff = goal_angle - static_cast<float>(odom.theta);
         while (angle_diff > static_cast<float>(M_PI))
@@ -482,17 +500,21 @@ void RobotApp::NavLoop() {
         while (angle_diff < -static_cast<float>(M_PI))
           angle_diff += 2.0f * static_cast<float>(M_PI);
 
-        float turn_scale = std::max(0.0f,
-            1.0f - std::abs(angle_diff) / static_cast<float>(M_PI));
+        // Rotate-then-drive: suppress forward speed when angle error is large
+        float abs_angle = std::abs(angle_diff);
+        float turn_scale = std::max(0.0f, 1.0f - abs_angle / (0.5f * static_cast<float>(M_PI)));
+
+        // Decelerate near goal
+        float speed = std::min(0.25f * dist, kPCtrlVMax) * turn_scale;
         CmdVel cmd{
-          std::clamp(0.4f * dist * turn_scale, 0.0f, kVMax),
-          std::clamp(1.8f * angle_diff, -kWMax, kWMax)
+          std::max(speed, 0.0f),
+          std::clamp(1.5f * angle_diff, -kPCtrlWMax, kPCtrlWMax)
         };
 
         if (step % 50 == 0) {
           std::cout << "[P-CTRL] step=" << step
                     << " dist=" << dist
-                    << " angle_diff=" << angle_diff
+                    << " angle=" << angle_diff
                     << " cmd=(" << cmd.linear_x << "," << cmd.angular_z << ")\n";
         }
 
