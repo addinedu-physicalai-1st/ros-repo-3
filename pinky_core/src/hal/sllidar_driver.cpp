@@ -132,13 +132,15 @@ bool SllidarDriver::GetScan(LidarScan& scan) {
   scan.range_min = 0.15f;
   scan.range_max = 12.0f;
 
-  // Convert CW → CCW (matching ROS2 LaserScan convention used in training).
-  // SLLiDAR: index 0=front, increasing index=clockwise
-  // ROS/training: index 0=front, increasing index=counter-clockwise
-  // Mapping: CCW index i ← CW index (count - i) % count
+  // Convert CW → CCW and align to base_link (FRONT = 0°).
+  // SLLiDAR spins CW. nodes[0] is physical 0° mark.
+  // In URDF, LiDAR is mounted with rpy="0 0 pi" (rotated 180°).
+  // So physical 0° is BACK of the robot.
+  // We want scan.ranges[0] to be FRONT (0° in base_link), increasing CCW.
+  // Mapping: src_idx = (count / 2 - i + count) % count
   scan.ranges.resize(count);
   for (size_t i = 0; i < count; ++i) {
-    size_t src_idx = (count - i) % count;
+    size_t src_idx = (count / 2 - i + count) % count;
     float range_m = nodes[src_idx].dist_mm_q2 / 4000.0f;
     scan.ranges[i] = (range_m == 0.0f) ? 0.0f : range_m;
   }
