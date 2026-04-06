@@ -231,6 +231,65 @@ LiDAR 복구 시 자동으로 RL로 전환.
 
 ---
 
+---
+
+### 3.7. LiDAR GetScan 실패 근본 원인 수정 (C++)
+
+**증상:** `LiDAR scan started.` 이후 `[LIDAR] GetScan failed (count=1/10/...)` 무한 반복.
+
+**근본 원인: 모터 시작 순서 반전**
+
+| 항목 | 기존 (잘못됨) | 수정 후 (ROS2 sllidar_node 동일) |
+|------|--------------|----------------------------------|
+| StartScan 순서 | `startScan()` → `setMotorSpeed()` | `setMotorSpeed()` → `startScan()` |
+
+`grabScanDataHq()`는 모터가 1회전을 완료할 때까지 대기. 모터가 아직 안 돌고 있으면 항상 타임아웃.
+
+**추가 수정:**
+- `Init()`: `getHealth()` 체크 추가 — ERROR 상태면 `reset()` 후 실패 반환. 모델/FW/HW 버전 출력
+- `StartScan()`: `setMotorSpeed()` 반환값 체크, 에러 코드 로깅, 선택된 스캔 모드 출력
+- `GetScan()`: `grabScanDataHq` 타임아웃 2000ms → **5000ms** (모터 스핀업 대기 여유 확보)
+
+**기대 출력 (수정 후):**
+```
+SLLiDAR connected successfully. Model: XX FW: X.X HW: X
+SLLiDAR health status: 0 (OK)
+SLLiDAR scan mode: DenseBoost (sample_duration=...us, max_dist=...m)
+LiDAR scan started.
+[LIDAR] First scan received (XXX points, after 0 failures)
+```
+
+**수정 파일:**
+- `pinky_core/src/hal/sllidar_driver.cpp`
+
+---
+
+### 3.8. SAC 관측값 구조 불일치 수정 (C++) — by other AI
+
+**원인:** Python 훈련 환경과 C++ 추론의 obs[25~27] 구조 불일치.
+
+| 인덱스 | 기존 C++ (잘못됨) | Python 훈련 / 수정 후 |
+|--------|------------------|----------------------|
+| [25] | `cos(goal_angle)` | `goal_angle / π` |
+| [26] | `sin(goal_angle)` | `odom.vx / 0.5` |
+| [27] | `step / max_steps` | `odom.vth / 1.0` |
+
+**수정 파일:**
+- `pinky_core/src/inference/observation_builder.cpp`
+
+---
+
+### 3.9. OccupancyGrid free-space raycasting 수정 (Python) — by other AI
+
+**원인:** 범위 밖(0.0, inf) 빔을 `continue`로 건너뛰어 free space가 전혀 그려지지 않음.
+
+**수정:** 유효하지 않은 빔은 `range_max`로 클램프 후 raycasting 실행 (`is_valid_hit=False`로 occupied 마킹만 제외).
+
+**수정 파일:**
+- `pinky_station/pinky_station/core/occupancy_grid.py`
+
+---
+
 ## 5. 테스트 체크리스트
 
 - [x] nav_goal 전송 후 `[NAV] Navigation active` 로그 확인
@@ -242,5 +301,8 @@ LiDAR 복구 시 자동으로 RL로 전환.
 - [ ] 카메라 배경이 실제 환경과 좌우 일치 확인
 - [ ] Start → 주행 중 Start 버튼 비활성화 확인
 - [ ] Reset 또는 목표 도달 후 Start 버튼 재활성화 확인
-- [ ] LiDAR 정상 동작 시 Map Build ON → 로봇 주행하면서 OG 맵 실시간 갱신 확인
-- [ ] Save Map → .pgm/.yaml 저장 후 ROS2 map_server 또는 Load Map으로 로드 확인
+- [ ] 빌드 후 `SLLiDAR health status: 0 (OK)` 및 `SLLiDAR scan mode:` 로그 확인
+- [ ] `[LIDAR] First scan received` 로그로 LiDAR 스캔 정상 수신 확인
+- [ ] `[NAV] Navigation active (has_lidar=1, has_onnx=1)` → RL 주행 전환 확인
+- [ ] Map Build ON → 로봇 주행하면서 OG 맵 실시간 갱신 확인
+- [ ] Save Map → .pgm/.yaml 저장 후 Load Map으로 로드 확인
