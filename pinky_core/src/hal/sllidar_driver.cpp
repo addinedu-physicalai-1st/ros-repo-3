@@ -122,7 +122,7 @@ bool SllidarDriver::GetScan(LidarScan& scan) {
     return false;
   }
 
-  // Sort by angle ascending
+  // Sort by angle ascending (SLLiDAR native: 0→360° clockwise)
   drv_->ascendScanData(nodes, count);
 
   scan.stamp = Timestamp::Now();
@@ -132,14 +132,15 @@ bool SllidarDriver::GetScan(LidarScan& scan) {
   scan.range_min = 0.15f;
   scan.range_max = 12.0f;
 
+  // Convert CW → CCW (matching ROS2 LaserScan convention used in training).
+  // SLLiDAR: index 0=front, increasing index=clockwise
+  // ROS/training: index 0=front, increasing index=counter-clockwise
+  // Mapping: CCW index i ← CW index (count - i) % count
   scan.ranges.resize(count);
   for (size_t i = 0; i < count; ++i) {
-    float range_m = nodes[i].dist_mm_q2 / 4000.0f; 
-    if (range_m == 0.0f) {
-      scan.ranges[i] = 0.0f; // 0.0f means invalid/no return
-    } else {
-      scan.ranges[i] = range_m;
-    }
+    size_t src_idx = (count - i) % count;
+    float range_m = nodes[src_idx].dist_mm_q2 / 4000.0f;
+    scan.ranges[i] = (range_m == 0.0f) ? 0.0f : range_m;
   }
 
   return true;

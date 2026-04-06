@@ -301,8 +301,60 @@ LiDAR scan started.
 - [ ] 카메라 배경이 실제 환경과 좌우 일치 확인
 - [ ] Start → 주행 중 Start 버튼 비활성화 확인
 - [ ] Reset 또는 목표 도달 후 Start 버튼 재활성화 확인
+---
+
+### 3.10. LiDAR 각도 규칙 불일치 수정 — 맵 오류 + RL 장애물 회피 실패 동일 원인 (C++)
+
+**증상:**
+- 맵이 좌우 반전되어 비정상적으로 그려짐
+- RL 장애물 회피 시 "전진+멈춤+약간 후진" 패턴 반복, 장애물 회피 불가
+
+**근본 원인: CW/CCW 각도 규칙 불일치**
+
+SLLiDAR 하드웨어는 시계방향(CW) 각도 규칙을 사용하고, ROS2 sllidar_node는 `M_PI - angle` + 배열 역순으로 CCW로 변환하여 발행한다. Python 훈련 환경은 이 CCW ROS2 LaserScan을 기준으로 학습됨.
+
+그러나 C++ `GetScan()`은 변환 없이 CW 원시 데이터를 그대로 저장:
+
+| 인덱스 | SLLiDAR 실제 방향 (CW) | 코드 가정 (CCW) — **반전!** |
+|--------|----------------------|--------------------------|
+| 0 | 전방 (0°) | 전방 (0°) — 일치 |
+| N/4 | **우측** | **좌측** — **오류** |
+| N/2 | 후방 | 후방 — 일치 |
+| 3N/4 | **좌측** | **우측** — **오류** |
+
+파급 효과:
+- **맵**: 레이캐스팅이 실제 반대 방향으로 빔 투사 → 좌우 반전 맵
+- **RL 섹터**: 좌우 장애물 정보 교환 → 회피 시 오히려 장애물 방향으로 이동
+
+**수정 (`sllidar_driver.cpp`):**
+```cpp
+// CW → CCW 변환: CCW index i ← CW index (count - i) % count
+for (size_t i = 0; i < count; ++i) {
+    size_t src_idx = (count - i) % count;
+    scan.ranges[i] = nodes[src_idx].dist_mm_q2 / 4000.0f;
+}
+```
+
+---
+
+### 3.11. RL 속도 상수 훈련 환경 일치 수정 (C++)
+
+**원인:** 훈련 시 action[-1,1] → v[0, 0.5 m/s], w[-1.5, 1.5 rad/s]로 학습되었으나 C++ 상수가 달라 행동 공간이 왜곡됨.
+
+| 상수 | 기존 | 수정 |
+|------|------|------|
+| `kVMax` | 0.26 m/s | **0.5 m/s** (훈련 동일) |
+| `kWMax` | 1.0 rad/s | **1.5 rad/s** (훈련 동일) |
+
+**수정 파일:** `pinky_core/include/pinky_core/common/constants.h`
+
+---
+
+## 5. 테스트 체크리스트
+
 - [ ] 빌드 후 `SLLiDAR health status: 0 (OK)` 및 `SLLiDAR scan mode:` 로그 확인
 - [ ] `[LIDAR] First scan received` 로그로 LiDAR 스캔 정상 수신 확인
 - [ ] `[NAV] Navigation active (has_lidar=1, has_onnx=1)` → RL 주행 전환 확인
-- [ ] Map Build ON → 로봇 주행하면서 OG 맵 실시간 갱신 확인
+- [ ] RL 주행 시 장애물에서 좌우 정상 회피 (더 이상 장애물 방향으로 이동하지 않음) 확인
+- [ ] Map Build ON → 맵이 좌우 반전 없이 실제 환경과 일치하여 그려지는지 확인
 - [ ] Save Map → .pgm/.yaml 저장 후 Load Map으로 로드 확인
