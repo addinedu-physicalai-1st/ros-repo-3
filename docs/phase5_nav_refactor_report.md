@@ -355,6 +355,28 @@ for (size_t i = 0; i < count; ++i) {
 - [ ] 빌드 후 `SLLiDAR health status: 0 (OK)` 및 `SLLiDAR scan mode:` 로그 확인
 - [ ] `[LIDAR] First scan received` 로그로 LiDAR 스캔 정상 수신 확인
 - [ ] `[NAV] Navigation active (has_lidar=1, has_onnx=1)` → RL 주행 전환 확인
+---
+
+### 3.12. Ws2811Led Init 실패 시 소멸자 Segfault 수정 (C++)
+
+**증상:** `LED init failed` 직후 `Segmentation fault (core dumped)`
+
+**원인:** `ws2811_init()` 실패 시 LED 픽셀 버퍼(`ws->channel[0].leds`)가 NULL 상태.
+소멸자가 `Clear()` → `SetPixel()` → `leds[index]` 접근 → NULL 포인터 역참조 → segfault.
+
+**수정 (`ws2811_led.h` / `ws2811_led.cpp`):**
+- `initialized_` 플래그 추가 — `ws2811_init()` 성공 시만 `true` 설정
+- `~Ws2811Led()`: `initialized_` 확인 후에만 `Clear()`/`Show()`/`ws2811_fini()` 호출
+- `SetPixel()` / `Show()`: 미초기화 상태에서 즉시 반환
+
+**LED "Device or resource busy" 원인 (별도):**
+`battery` 스크립트(check_battery.py)가 GPIO pin 18을 점유한 채 종료하지 않음.
+로봇 실행 전 해당 프로세스 종료 필요.
+
+---
+
+## 5. 테스트 체크리스트
+
 - [ ] RL 주행 시 장애물에서 좌우 정상 회피 (더 이상 장애물 방향으로 이동하지 않음) 확인
 - [ ] Map Build ON → 맵이 좌우 반전 없이 실제 환경과 일치하여 그려지는지 확인
 - [ ] Save Map → .pgm/.yaml 저장 후 Load Map으로 로드 확인

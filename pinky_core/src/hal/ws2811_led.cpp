@@ -44,9 +44,11 @@ Ws2811Led::Ws2811Led(const Config& config) : config_(config) {
 
 Ws2811Led::~Ws2811Led() {
   if (ws2811_) {
-    Clear();
-    Show();
-    ws2811_fini(static_cast<ws2811_t*>(ws2811_));
+    if (initialized_) {
+      Clear();
+      Show();
+      ws2811_fini(static_cast<ws2811_t*>(ws2811_));
+    }
     delete static_cast<ws2811_t*>(ws2811_);
     ws2811_ = nullptr;
   }
@@ -78,10 +80,12 @@ bool Ws2811Led::Init() {
     return false;
   }
 
+  initialized_ = true;
   return true;
 }
 
 void Ws2811Led::SetPixel(int index, uint8_t r, uint8_t g, uint8_t b) {
+  if (!initialized_) return;
   auto* ws = static_cast<ws2811_t*>(ws2811_);
   if (ws && index >= 0 && index < config_.num_leds) {
     // Pack color ARGB format
@@ -93,6 +97,7 @@ void Ws2811Led::SetPixel(int index, uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void Ws2811Led::Show() {
+  if (!initialized_) return;
   auto* ws = static_cast<ws2811_t*>(ws2811_);
   if (ws) {
     ws2811_render(ws);

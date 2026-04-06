@@ -24,7 +24,8 @@ class Ws2811Led : public ILedDriver {
  private:
   Config config_;
   // Minimal representation for ws2811 internal struct pointer
-  void* ws2811_{nullptr}; 
+  void* ws2811_{nullptr};
+  bool initialized_{false};
 };
 
 // Reusing same logic for Lamp but diff pin.
