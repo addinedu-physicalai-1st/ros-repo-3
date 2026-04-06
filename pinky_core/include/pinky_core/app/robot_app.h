@@ -75,6 +75,7 @@ class RobotApp {
   void ImuLoop();
   void AdcLoop();
   void LidarLoop();
+  void NavLoop();
   void CameraLoop();
   void LcdLoop();
   
@@ -106,17 +107,20 @@ class RobotApp {
 
   std::mutex state_mutex_;
   Odometry current_odom_;
-  CmdVel target_cmd_vel_; 
+  CmdVel target_cmd_vel_;
   bool rl_navigation_active_{false};
   NavGoal current_goal_;
   int rl_step_count_{0};
-  
+  LidarSectors latest_sectors_;
+  bool has_lidar_sectors_{false};
+
   EmotionId current_emotion_{EmotionId::kNeutral};
 
   std::thread motor_thread_;
   std::thread imu_thread_;
   std::thread adc_thread_;
   std::thread lidar_thread_;
+  std::thread nav_thread_;
   std::thread camera_thread_;
   std::thread lcd_thread_;
 };

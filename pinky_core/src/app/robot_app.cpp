@@ -120,6 +120,7 @@ void RobotApp::Run() {
   imu_thread_ = std::thread(&RobotApp::ImuLoop, this);
   adc_thread_ = std::thread(&RobotApp::AdcLoop, this);
   lidar_thread_ = std::thread(&RobotApp::LidarLoop, this);
+  nav_thread_ = std::thread(&RobotApp::NavLoop, this);
   if (camera_) camera_thread_ = std::thread(&RobotApp::CameraLoop, this);
   if (lcd_) lcd_thread_ = std::thread(&RobotApp::LcdLoop, this);
 
@@ -141,6 +142,7 @@ void RobotApp::Stop() {
   if (imu_thread_.joinable()) imu_thread_.join();
   if (adc_thread_.joinable()) adc_thread_.join();
   if (lidar_thread_.joinable()) lidar_thread_.join();
+  if (nav_thread_.joinable()) nav_thread_.join();
   if (camera_thread_.joinable()) camera_thread_.join();
   if (lcd_thread_.joinable()) lcd_thread_.join();
 }
@@ -372,7 +374,7 @@ void RobotApp::AdcLoop() {
 
 void RobotApp::LidarLoop() {
   int scan_count = 0;
-  while(running_.load()) {
+  while (running_.load()) {
     if (lidar_) {
       LidarScan scan;
       if (lidar_->GetScan(scan)) {
@@ -383,6 +385,13 @@ void RobotApp::LidarLoop() {
 
         LidarSectors sectors = lidar_processor_.Process(scan);
 
+        // Store latest sectors for NavLoop (RL inference)
+        {
+          std::lock_guard<std::mutex> lock(state_mutex_);
+          latest_sectors_ = sectors;
+          has_lidar_sectors_ = true;
+        }
+
         // Stream back to PC
         proto::SensorTelemetry t;
         t.set_robot_id(config_.robot_id);
@@ -392,86 +401,108 @@ void RobotApp::LidarLoop() {
           proto_sectors->add_sectors(s);
         }
         zmq_server_->PublishTelemetry(t);
-
-        // RL Inference if active
-        bool is_active;
-        NavGoal goal;
-        Odometry odom;
-        int step;
-
-        {
-          std::lock_guard<std::mutex> lock(state_mutex_);
-          is_active = rl_navigation_active_;
-          goal = current_goal_;
-          odom = current_odom_;
-          step = rl_navigation_active_ ? rl_step_count_++ : rl_step_count_;
-        }
-
-        if (is_active) {
-          if (step == 0) {
-            std::cout << "[NAV] RL navigation active, starting inference\n";
-          }
-          if (onnx_actor_) {
-            obs_builder_.SetGoal(goal.x, goal.y);
-            std::array<float, 28> obs = obs_builder_.Build(sectors, odom, step);
-            std::array<float, 2> action = onnx_actor_->Infer(obs);
-            CmdVel cmd = rl_controller_.Compute(
-                action,
-                static_cast<float>(odom.vx),
-                static_cast<float>(odom.vth));
-
-            if (step % 50 == 0) {
-              float dx = static_cast<float>(goal.x - odom.x);
-              float dy = static_cast<float>(goal.y - odom.y);
-              float dist = std::sqrt(dx * dx + dy * dy);
-              std::cout << "[RL] step=" << step
-                        << " goal=(" << goal.x << "," << goal.y << ")"
-                        << " pos=(" << odom.x << "," << odom.y << ")"
-                        << " dist=" << dist
-                        << " action=[" << action[0] << "," << action[1] << "]"
-                        << " cmd=(" << cmd.linear_x << "," << cmd.angular_z << ")\n";
-            }
-
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            target_cmd_vel_ = cmd;
-          } else {
-            // P-control fallback when ONNX model is unavailable
-            float dx = static_cast<float>(goal.x - odom.x);
-            float dy = static_cast<float>(goal.y - odom.y);
-            float dist = std::sqrt(dx * dx + dy * dy);
-
-            if (step % 50 == 0) {
-              std::cout << "[P-CTRL] dist=" << dist
-                        << " pos=(" << odom.x << "," << odom.y << ")\n";
-            }
-
-            if (dist < 0.30f) {
-              std::cout << "[NAV] Goal reached (P-control)\n";
-              std::lock_guard<std::mutex> lock(state_mutex_);
-              rl_navigation_active_ = false;
-              target_cmd_vel_ = {0.0f, 0.0f};
-            } else {
-              float goal_angle = std::atan2(dy, dx);
-              float angle_diff = goal_angle - static_cast<float>(odom.theta);
-              while (angle_diff >  static_cast<float>(M_PI)) angle_diff -= 2.0f * static_cast<float>(M_PI);
-              while (angle_diff < -static_cast<float>(M_PI)) angle_diff += 2.0f * static_cast<float>(M_PI);
-
-              float turn_scale = std::max(0.0f, 1.0f - std::abs(angle_diff) / static_cast<float>(M_PI));
-              CmdVel cmd{
-                std::clamp(0.4f * dist * turn_scale, 0.0f, kVMax),
-                std::clamp(1.8f * angle_diff, -kWMax, kWMax)
-              };
-              std::lock_guard<std::mutex> lock(state_mutex_);
-              target_cmd_vel_ = cmd;
-            }
-          }
-        }
       } else {
         std::this_thread::sleep_for(50ms);
       }
     } else {
       std::this_thread::sleep_for(100ms);
     }
+  }
+}
+
+void RobotApp::NavLoop() {
+  const auto period = std::chrono::milliseconds(
+      static_cast<int>(config_.rl.control_period_ms));  // 50ms = 20Hz
+
+  while (running_.load()) {
+    auto start_time = std::chrono::steady_clock::now();
+
+    NavGoal goal;
+    Odometry odom;
+    int step = 0;
+    bool has_sectors = false;
+    LidarSectors sectors;
+    bool is_active = false;
+
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      is_active = rl_navigation_active_;
+      if (is_active) {
+        goal = current_goal_;
+        odom = current_odom_;
+        step = rl_step_count_++;
+        has_sectors = has_lidar_sectors_;
+        if (has_sectors) {
+          sectors = latest_sectors_;
+        }
+      }
+    }
+
+    if (is_active) {
+      if (step == 0) {
+        std::cout << "[NAV] Navigation active (has_lidar=" << has_sectors
+                  << ", has_onnx=" << (onnx_actor_ != nullptr) << ")\n";
+      }
+
+      float dx = static_cast<float>(goal.x - odom.x);
+      float dy = static_cast<float>(goal.y - odom.y);
+      float dist = std::sqrt(dx * dx + dy * dy);
+
+      // Goal reached check
+      if (dist < 0.30f) {
+        std::cout << "[NAV] Goal reached! dist=" << dist << "\n";
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        rl_navigation_active_ = false;
+        target_cmd_vel_ = {0.0f, 0.0f};
+      } else if (onnx_actor_ && has_sectors) {
+        // RL controller (needs LiDAR + ONNX)
+        obs_builder_.SetGoal(goal.x, goal.y);
+        std::array<float, 28> obs = obs_builder_.Build(sectors, odom, step);
+        std::array<float, 2> action = onnx_actor_->Infer(obs);
+        CmdVel cmd = rl_controller_.Compute(
+            action,
+            static_cast<float>(odom.vx),
+            static_cast<float>(odom.vth));
+
+        if (step % 50 == 0) {
+          std::cout << "[RL] step=" << step
+                    << " dist=" << dist
+                    << " action=[" << action[0] << "," << action[1] << "]"
+                    << " cmd=(" << cmd.linear_x << "," << cmd.angular_z << ")\n";
+        }
+
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        target_cmd_vel_ = cmd;
+      } else {
+        // P-control fallback: works without LiDAR
+        float goal_angle = std::atan2(dy, dx);
+        float angle_diff = goal_angle - static_cast<float>(odom.theta);
+        while (angle_diff > static_cast<float>(M_PI))
+          angle_diff -= 2.0f * static_cast<float>(M_PI);
+        while (angle_diff < -static_cast<float>(M_PI))
+          angle_diff += 2.0f * static_cast<float>(M_PI);
+
+        float turn_scale = std::max(0.0f,
+            1.0f - std::abs(angle_diff) / static_cast<float>(M_PI));
+        CmdVel cmd{
+          std::clamp(0.4f * dist * turn_scale, 0.0f, kVMax),
+          std::clamp(1.8f * angle_diff, -kWMax, kWMax)
+        };
+
+        if (step % 50 == 0) {
+          std::cout << "[P-CTRL] step=" << step
+                    << " dist=" << dist
+                    << " angle_diff=" << angle_diff
+                    << " cmd=(" << cmd.linear_x << "," << cmd.angular_z << ")\n";
+        }
+
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        target_cmd_vel_ = cmd;
+      }
+    }
+
+    auto elapsed = std::chrono::steady_clock::now() - start_time;
+    if (elapsed < period) std::this_thread::sleep_for(period - elapsed);
   }
 }
 

@@ -3,7 +3,7 @@ import yaml
 from pathlib import Path
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
-from PyQt6.QtGui import QPainter, QColor, QPen, QTransform, QPolygonF, QImage
+from PyQt6.QtGui import QPainter, QColor, QPen, QTransform, QPolygonF, QImage, QPainterPath
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 import struct
 import math
@@ -182,34 +182,39 @@ class MapWidget(QWidget):
         painter.setPen(QPen(QColor(0, 255, 0), 2))
         painter.drawLine(p0, py)
 
-        # Draw planned path (static waypoint connections — dim)
+        # Draw planned path (static waypoint connections — dim dashed)
         if len(self.waypoints) >= 2:
-            painter.setPen(QPen(QColor(255, 255, 0, 60), 1, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(255, 255, 0, 50), 1, Qt.PenStyle.DashLine))
             for i in range(len(self.waypoints) - 1):
                 p0 = world_to_screen.map(QPointF(*self.waypoints[i]))
                 p1 = world_to_screen.map(QPointF(*self.waypoints[i+1]))
                 painter.drawLine(p0, p1)
 
-        # Draw live navigation path (robot → current goal → remaining waypoints)
+        # Draw live navigation path (smooth spline curve)
         if (self.current_waypoint_idx >= 0
                 and self.active_robot_id
                 and self.active_robot_id in self.robots_pose
                 and self.current_waypoint_idx < len(self.waypoints)):
-            rx, ry, _ = self.robots_pose[self.active_robot_id]
-            nav_pen = QPen(QColor(0, 200, 255, 200), 3)
-            painter.setPen(nav_pen)
+            rx, ry, rtheta = self.robots_pose[self.active_robot_id]
 
-            # Robot position → current target waypoint
-            robot_screen = world_to_screen.map(QPointF(rx, ry))
-            target_screen = world_to_screen.map(
-                QPointF(*self.waypoints[self.current_waypoint_idx]))
-            painter.drawLine(robot_screen, target_screen)
+            # Build control points: robot position + remaining waypoints
+            nav_pts = [(rx, ry)] + list(
+                self.waypoints[self.current_waypoint_idx:])
 
-            # Current target → remaining waypoints
-            for i in range(self.current_waypoint_idx, len(self.waypoints) - 1):
-                wp0 = world_to_screen.map(QPointF(*self.waypoints[i]))
-                wp1 = world_to_screen.map(QPointF(*self.waypoints[i + 1]))
-                painter.drawLine(wp0, wp1)
+            if len(nav_pts) >= 2:
+                # Generate smooth spline in world coords
+                spline_world = self._catmull_rom_chain(nav_pts, segments=12)
+
+                # Convert to screen and draw as QPainterPath
+                path = QPainterPath()
+                sp0 = world_to_screen.map(QPointF(*spline_world[0]))
+                path.moveTo(sp0)
+                for sx, sy in spline_world[1:]:
+                    path.lineTo(world_to_screen.map(QPointF(sx, sy)))
+
+                painter.setPen(QPen(QColor(0, 200, 255, 200), 3))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(path)
 
         # Draw Odometry trail for active robot
         if len(self.trail) >= 2:
@@ -339,3 +344,59 @@ class MapWidget(QWidget):
         else:
             self.scale_factor *= 0.9
         self.update()
+
+    @staticmethod
+    def _catmull_rom_chain(
+        points: list[tuple[float, float]],
+        segments: int = 12,
+    ) -> list[tuple[float, float]]:
+        """Generate a Catmull-Rom spline through *points*.
+
+        Returns a list of (x, y) tuples that form a smooth curve.
+        The first/last control points are mirrored to keep the curve
+        passing through all input points.
+        """
+        if len(points) < 2:
+            return list(points)
+        if len(points) == 2:
+            # Simple linear interpolation for two points
+            result = []
+            x0, y0 = points[0]
+            x1, y1 = points[1]
+            for i in range(segments + 1):
+                t = i / segments
+                result.append((x0 + t * (x1 - x0), y0 + t * (y1 - y0)))
+            return result
+
+        # Pad: mirror first and last points
+        pts = [
+            (2 * points[0][0] - points[1][0],
+             2 * points[0][1] - points[1][1]),
+        ] + list(points) + [
+            (2 * points[-1][0] - points[-2][0],
+             2 * points[-1][1] - points[-2][1]),
+        ]
+
+        result = []
+        for i in range(1, len(pts) - 2):
+            p0, p1, p2, p3 = pts[i - 1], pts[i], pts[i + 1], pts[i + 2]
+            for s in range(segments):
+                t = s / segments
+                t2 = t * t
+                t3 = t2 * t
+                x = 0.5 * (
+                    (2 * p1[0])
+                    + (-p0[0] + p2[0]) * t
+                    + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
+                    + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
+                )
+                y = 0.5 * (
+                    (2 * p1[1])
+                    + (-p0[1] + p2[1]) * t
+                    + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
+                    + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
+                )
+                result.append((x, y))
+        # Ensure the final point is included
+        result.append(points[-1])
+        return result
