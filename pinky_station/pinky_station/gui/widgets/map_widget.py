@@ -41,11 +41,6 @@ class MapWidget(QWidget):
         self.map_resolution = 0.05
         self.map_origin = (0.0, 0.0)
 
-        # Occupancy grid (live map building)
-        self.og_image: QImage | None = None
-        self.og_resolution = 0.05
-        self.og_origin = (0.0, 0.0)
-
     def load_map(self, yaml_path: str | Path):
         yaml_path = Path(yaml_path)
         if not yaml_path.exists():
@@ -70,18 +65,6 @@ class MapWidget(QWidget):
             self.update()
         except Exception:
             pass
-
-    def set_occupancy_grid(self, og_image: QImage, resolution: float,
-                           origin_x: float, origin_y: float) -> None:
-        """Update the live occupancy grid overlay."""
-        self.og_image = og_image
-        self.og_resolution = resolution
-        self.og_origin = (origin_x, origin_y)
-        self.update()
-
-    def clear_occupancy_grid(self) -> None:
-        self.og_image = None
-        self.update()
 
     def set_active_robot(self, robot_id: str):
         self.active_robot_id = robot_id
@@ -187,18 +170,6 @@ class MapWidget(QWidget):
             # Draw image flipped to match world coordinates
             painter.drawImage(map_rect_screen, self.map_image)
 
-        # Draw live occupancy grid (map building)
-        if self.og_image and not self.og_image.isNull():
-            og_w_m = self.og_image.width() * self.og_resolution
-            og_h_m = self.og_image.height() * self.og_resolution
-            og_rect_world = QRectF(
-                self.og_origin[0], self.og_origin[1], og_w_m, og_h_m
-            )
-            og_rect_screen = world_to_screen.mapRect(og_rect_world)
-            painter.setOpacity(0.85)
-            painter.drawImage(og_rect_screen, self.og_image)
-            painter.setOpacity(1.0)
-        
         # Draw Origin Axes
         painter.setPen(QPen(QColor(255, 0, 0), 2))
         p0 = world_to_screen.map(QPointF(0, 0))

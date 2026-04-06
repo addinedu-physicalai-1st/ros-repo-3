@@ -177,6 +177,7 @@ void RobotApp::OnCommand(const proto::ControlCommand& cmd, proto::CommandAck& ac
     current_goal_.theta = cmd.nav_goal().theta();
     rl_navigation_active_ = true;
     rl_step_count_ = 0;
+    smoothed_rl_action_ = {0.0f, 0.0f};
     std::cout << "[NAV] Goal received: (" << current_goal_.x
               << ", " << current_goal_.y << ", " << current_goal_.theta << ")\n";
     ack.set_message("NavGoal started");
@@ -477,49 +478,96 @@ void RobotApp::NavLoop() {
       float dy = static_cast<float>(goal.y - odom.y);
       float dist = std::sqrt(dx * dx + dy * dy);
 
-      // Goal reached check
+      // Pre-compute angle_diff (needed for turn-first check and P-control)
+      float goal_angle_world = std::atan2(dy, dx);
+      float angle_diff = goal_angle_world - static_cast<float>(odom.theta);
+      while (angle_diff > static_cast<float>(M_PI))
+        angle_diff -= 2.0f * static_cast<float>(M_PI);
+      while (angle_diff < -static_cast<float>(M_PI))
+        angle_diff += 2.0f * static_cast<float>(M_PI);
+
+      // Threshold: goal is more than 100° behind → rotate in place first
+      // This overrides the RL model which may blindly go forward.
+      constexpr float kTurnFirstThresholdRad = 1.745f;  // 100°
+      constexpr float kPCtrlVMax = 0.12f;
+      constexpr float kPCtrlWMax = 0.8f;
+
       if (dist < 0.30f) {
+        // ── Goal reached ──────────────────────────────────────────────
         std::cout << "[NAV] Goal reached! dist=" << dist << "\n";
         std::lock_guard<std::mutex> lock(state_mutex_);
         rl_navigation_active_ = false;
         target_cmd_vel_ = {0.0f, 0.0f};
+
+      } else if (std::abs(angle_diff) > kTurnFirstThresholdRad) {
+        // ── Turn-first mode ───────────────────────────────────────────
+        // Goal is > 100° behind: rotate in place before driving.
+        CmdVel cmd{0.0f, std::copysign(kWMax * 0.8f, angle_diff)};
+        if (step % 50 == 0) {
+          std::cout << "[NAV] Turn-first: angle_diff=" << angle_diff
+                    << " cmd=(0," << cmd.angular_z << ")\n";
+        }
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        target_cmd_vel_ = cmd;
+
       } else if (onnx_actor_ && has_sectors) {
-        // RL controller (needs LiDAR + ONNX)
+        // ── RL controller ─────────────────────────────────────────────
         obs_builder_.SetGoal(goal.x, goal.y);
         std::array<float, 28> obs = obs_builder_.Build(sectors, odom, step);
-        std::array<float, 2> action = onnx_actor_->Infer(obs);
+        std::array<float, 2> raw_action = onnx_actor_->Infer(obs);
+
+        // EMA smoothing: reduces chattering without adding latency at low freq.
+        // alpha=0.4 → ~60% carry-over from previous step at 20 Hz.
+        constexpr float kEmaAlpha = 0.4f;
+        smoothed_rl_action_[0] =
+            kEmaAlpha * raw_action[0] + (1.0f - kEmaAlpha) * smoothed_rl_action_[0];
+        smoothed_rl_action_[1] =
+            kEmaAlpha * raw_action[1] + (1.0f - kEmaAlpha) * smoothed_rl_action_[1];
+
+        // Angular velocity deadzone: suppress micro-corrections when driving straight.
+        constexpr float kAngularDeadzone = 0.05f;  // normalised action units
+        if (std::abs(smoothed_rl_action_[1]) < kAngularDeadzone) {
+          smoothed_rl_action_[1] = 0.0f;
+        }
+
         CmdVel cmd = rl_controller_.Compute(
-            action,
+            smoothed_rl_action_,
             static_cast<float>(odom.vx),
             static_cast<float>(odom.vth));
+
+        // Safety layer: limit forward speed when front sectors are close.
+        // Sectors[10..14] cover the front ±30° arc (sector[12] = direct front).
+        float front_min = 1.0f;
+        for (int s = 10; s <= 14; ++s) {
+          front_min = std::min(front_min, sectors.sectors[s]);
+        }
+        float front_dist = front_min * kMaxLidarDist;  // metres
+        if (cmd.linear_x > 0.0f) {
+          if (front_dist < 0.20f) {
+            cmd.linear_x = 0.0f;  // emergency stop
+          } else if (front_dist < 0.40f) {
+            float scale = (front_dist - 0.20f) / 0.20f;
+            cmd.linear_x *= scale;
+          }
+        }
 
         if (step % 50 == 0) {
           std::cout << "[RL] step=" << step
                     << " dist=" << dist
-                    << " action=[" << action[0] << "," << action[1] << "]"
+                    << " front=" << front_dist << "m"
+                    << " raw=[" << raw_action[0] << "," << raw_action[1] << "]"
+                    << " smooth=[" << smoothed_rl_action_[0] << ","
+                    << smoothed_rl_action_[1] << "]"
                     << " cmd=(" << cmd.linear_x << "," << cmd.angular_z << ")\n";
         }
-
         std::lock_guard<std::mutex> lock(state_mutex_);
         target_cmd_vel_ = cmd;
+
       } else {
-        // P-control fallback: works without LiDAR
-        // WARNING: no obstacle avoidance — use reduced speed
-        constexpr float kPCtrlVMax = 0.12f;  // safe speed without LiDAR
-        constexpr float kPCtrlWMax = 0.8f;
-
-        float goal_angle = std::atan2(dy, dx);
-        float angle_diff = goal_angle - static_cast<float>(odom.theta);
-        while (angle_diff > static_cast<float>(M_PI))
-          angle_diff -= 2.0f * static_cast<float>(M_PI);
-        while (angle_diff < -static_cast<float>(M_PI))
-          angle_diff += 2.0f * static_cast<float>(M_PI);
-
-        // Rotate-then-drive: suppress forward speed when angle error is large
+        // ── P-control fallback ────────────────────────────────────────
+        // Works without LiDAR — reduced speed, no obstacle avoidance.
         float abs_angle = std::abs(angle_diff);
         float turn_scale = std::max(0.0f, 1.0f - abs_angle / (0.5f * static_cast<float>(M_PI)));
-
-        // Decelerate near goal
         float speed = std::min(0.25f * dist, kPCtrlVMax) * turn_scale;
         CmdVel cmd{
           std::max(speed, 0.0f),
@@ -532,7 +580,6 @@ void RobotApp::NavLoop() {
                     << " angle=" << angle_diff
                     << " cmd=(" << cmd.linear_x << "," << cmd.angular_z << ")\n";
         }
-
         std::lock_guard<std::mutex> lock(state_mutex_);
         target_cmd_vel_ = cmd;
       }

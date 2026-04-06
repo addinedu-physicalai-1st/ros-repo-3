@@ -161,12 +161,35 @@ class OccupancyGridBuilder:
         return result
 
     def to_qimage(self) -> QImage:
-        """Convert grid to QImage for rendering on MapWidget."""
-        pgm = self.to_pgm_array()
+        """Convert grid to RGBA QImage for rendering on MapWidget.
+
+        Unknown cells are fully transparent so the underlying map remains
+        visible.  Free cells are rendered white and occupied cells black,
+        each with their own alpha value so they stand out clearly.
+        """
+        prob = self._log_odds_to_prob(self.grid)
         # Flip vertically: grid row 0 is world-bottom, QImage row 0 is top
-        pgm_flipped = np.flipud(pgm).copy()
-        h, w = pgm_flipped.shape
-        return QImage(pgm_flipped.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
+        prob_flipped = np.flipud(prob)
+
+        h, w = prob_flipped.shape
+        rgba = np.zeros((h, w, 4), dtype=np.uint8)
+
+        free_mask = prob_flipped < self.free_thresh
+        occ_mask = prob_flipped > self.occupied_thresh
+
+        # Free cells: white, semi-opaque
+        rgba[free_mask, 0] = 255
+        rgba[free_mask, 1] = 255
+        rgba[free_mask, 2] = 255
+        rgba[free_mask, 3] = 210
+
+        # Occupied cells: black, mostly opaque
+        rgba[occ_mask, 3] = 230  # R/G/B already 0
+
+        # Unknown cells: fully transparent (already 0 from np.zeros)
+
+        rgba = np.ascontiguousarray(rgba)
+        return QImage(rgba.data, w, h, w * 4, QImage.Format.Format_RGBA8888).copy()
 
     def save(self, file_path: str | Path) -> tuple[str, str]:
         """Save map as .pgm + .yaml (ROS2 map_server compatible).

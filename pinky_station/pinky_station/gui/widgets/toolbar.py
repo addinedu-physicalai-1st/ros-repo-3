@@ -13,8 +13,6 @@ class ToolbarWidget(QWidget):
     sig_nav_resume = pyqtSignal()
     sig_nav_reset = pyqtSignal()
     sig_add_waypoint = pyqtSignal()
-    sig_map_build_toggle = pyqtSignal(bool)  # True = start, False = stop
-    sig_map_save = pyqtSignal()
 
     def __init__(self, default_host: str = "127.0.0.1", parent=None):
         super().__init__(parent)
@@ -68,16 +66,6 @@ class ToolbarWidget(QWidget):
         self.btn_load_map = QPushButton("Load Map")
         self.btn_load_map.setFixedWidth(100)
 
-        self.btn_map_build = QPushButton("Map Build")
-        self.btn_map_build.setObjectName("btn_map_build")
-        self.btn_map_build.setCheckable(True)
-        self.btn_map_build.setFixedWidth(100)
-
-        self.btn_map_save = QPushButton("Save Map")
-        self.btn_map_save.setObjectName("btn_map_save")
-        self.btn_map_save.setFixedWidth(100)
-        self.btn_map_save.setEnabled(False)
-
         self.btn_start = QPushButton("▶  Start")
         self.btn_start.setObjectName("btn_start")
         self.btn_stop = QPushButton("⏸  Stop")
@@ -90,8 +78,6 @@ class ToolbarWidget(QWidget):
 
         row2.addWidget(self.btn_pose)
         row2.addWidget(self.btn_load_map)
-        row2.addWidget(self.btn_map_build)
-        row2.addWidget(self.btn_map_save)
         row2.addSpacing(40)
         row2.addWidget(self.btn_start)
         row2.addWidget(self.btn_stop)
@@ -108,8 +94,6 @@ class ToolbarWidget(QWidget):
         self.btn_stop.clicked.connect(self._on_stop_clicked)
         self.btn_reset.clicked.connect(self._on_reset_clicked)
         self.btn_add_waypoint.clicked.connect(self.sig_add_waypoint.emit)
-        self.btn_map_build.toggled.connect(self._on_map_build_toggled)
-        self.btn_map_save.clicked.connect(self.sig_map_save.emit)
 
     def _on_start_clicked(self):
         self.sig_nav_start.emit()
@@ -151,14 +135,6 @@ class ToolbarWidget(QWidget):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(True)
         self.sig_nav_reset.emit()
-
-    def _on_map_build_toggled(self, checked: bool):
-        self.sig_map_build_toggle.emit(checked)
-        self.btn_map_save.setEnabled(checked or self.btn_map_save.isEnabled())
-        if checked:
-            self.btn_map_build.setText("Stop Build")
-        else:
-            self.btn_map_build.setText("Map Build")
 
     def set_status(self, text: str, color: str):
         self.lbl_status.setText(text)

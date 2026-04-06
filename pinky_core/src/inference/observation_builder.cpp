@@ -33,8 +33,9 @@ std::array<float, kStateDim> ObservationBuilder::Build(
   obs[25] = static_cast<float>(std::cos(goal_angle));
   // [26] sin(goal_angle)
   obs[26] = static_cast<float>(std::sin(goal_angle));
-  // [27] progress
-  obs[27] = static_cast<float>(current_step) / static_cast<float>(max_steps_);
+  // [27] progress (clamped: real navigation may exceed training episode length)
+  obs[27] = Clamp(static_cast<float>(current_step) / static_cast<float>(max_steps_),
+                  0.0f, 1.0f);
 
   return obs;
 }

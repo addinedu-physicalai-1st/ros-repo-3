@@ -114,6 +114,9 @@ class RobotApp {
   LidarSectors latest_sectors_;
   bool has_lidar_sectors_{false};
 
+  // EMA-smoothed RL action: [0]=linear, [1]=angular
+  std::array<float, 2> smoothed_rl_action_{0.0f, 0.0f};
+
   EmotionId current_emotion_{EmotionId::kNeutral};
 
   std::thread motor_thread_;
