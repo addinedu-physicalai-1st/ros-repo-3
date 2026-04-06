@@ -91,7 +91,11 @@ class OccupancyGridBuilder:
         rx, ry = self.world_to_grid(robot_x, robot_y)
 
         for i, r in enumerate(ranges):
-            if r < range_min or r > range_max or not math.isfinite(r):
+            is_valid_hit = True
+            if r == 0.0 or not math.isfinite(r) or r > range_max:
+                r = range_max
+                is_valid_hit = False
+            elif r < range_min:
                 continue
 
             beam_angle = robot_theta + angle_min + i * angle_inc
@@ -103,7 +107,7 @@ class OccupancyGridBuilder:
             self._trace_ray(rx, ry, hx, hy)
 
             # Mark hit cell as occupied
-            if self.in_bounds(hx, hy):
+            if is_valid_hit and self.in_bounds(hx, hy):
                 self.grid[hy, hx] = min(
                     self.grid[hy, hx] + self.log_odds_hit, self.log_odds_max
                 )
