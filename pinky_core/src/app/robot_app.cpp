@@ -169,11 +169,14 @@ void RobotApp::OnCommand(const proto::ControlCommand& cmd, proto::CommandAck& ac
     current_goal_.theta = cmd.nav_goal().theta();
     rl_navigation_active_ = true;
     rl_step_count_ = 0;
+    std::cout << "[NAV] Goal received: (" << current_goal_.x
+              << ", " << current_goal_.y << ", " << current_goal_.theta << ")\n";
     ack.set_message("NavGoal started");
   } else if (cmd.has_nav_cancel()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     rl_navigation_active_ = false;
     target_cmd_vel_ = {0.0f, 0.0f};
+    std::cout << "[NAV] Navigation canceled\n";
     ack.set_message("Nav canceled");
   } else if (cmd.has_set_pose()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
