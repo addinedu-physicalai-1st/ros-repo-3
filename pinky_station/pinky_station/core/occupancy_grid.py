@@ -35,7 +35,7 @@ class OccupancyGridBuilder:
         log_odds_max: float = 5.0,
         log_odds_min: float = -2.0,
         occupied_thresh: float = 0.65,
-        free_thresh: float = 0.196,
+        free_thresh: float = 0.25,
     ):
         self.resolution = resolution
         self.width = width
@@ -146,17 +146,17 @@ class OccupancyGridBuilder:
         """Convert grid to PGM-style uint8 array.
 
         Returns: (height, width) uint8 array
-          205 = unknown, 254 = free, 0 = occupied
+          205 = unknown, 255 = free, 0 = occupied
         """
         prob = self._log_odds_to_prob(self.grid)
         result = np.full((self.height, self.width), 205, dtype=np.uint8)
 
-        free_mask = prob < (1.0 - self.free_thresh)
+        free_mask = prob < self.free_thresh
         occupied_mask = prob > self.occupied_thresh
         # Cells with near-zero log-odds remain unknown (205)
         unknown_mask = np.abs(self.grid) < 0.1
 
-        result[free_mask & ~unknown_mask] = 254
+        result[free_mask & ~unknown_mask] = 255
         result[occupied_mask & ~unknown_mask] = 0
         return result
 

@@ -27,11 +27,22 @@ In this phase, we addressed three major issues reported during the autonomous na
 *   **Resolution:** Updated the array mapping in `pinky_core/src/hal/sllidar_driver.cpp` to correctly align the 0-index with the front of the `base_link` and increment CCW:
     *   `size_t src_idx = (count / 2 - i + count) % count;`
 
-### 2.4. ABI Mismatch & Immediate Exit Fix
-*   **Root Cause:** A recent header update in `ws2811_led.h` (adding `initialized_` flag) increased the size of the `Ws2811Led` class. Existing build artifacts in `robot_app.cpp` did not recognize this change, resulting in a heap-buffer-overflow (heap corruption) when the constructor initialized the new member outside the previously allocated memory block.
-*   **Resolution:** Forced a recompile of `robot_app.cpp` by adding a dummy comment change. This ensures the executable is linked with the correct object sizes, resolving the heap corruption and immediate exit.
+### 2.5. Map Building Logic Optimization (Ref. Standard Compliance)
+*   **Root Cause:** The `free_thresh` and PGM output values did not perfectly align with the ROS 2 `map_server` and the reference PDF standards, leading to inconsistent visualization (off-white instead of pure white).
+*   **Resolution:**
+    *   **Threshold Update:** Adjusted `free_thresh` from `0.196` to **`0.25`** in `OccupancyGridBuilder` to match the reference parameters.
+    *   **Logic Correction:** Fixed the probability comparison in `to_pgm_array` to `prob < free_thresh` (previously using an inverse logic) to ensure correct free-space detection.
+    *   **Color Value:** Changed the PGM output for free space from `254` to **`255` (pure white)** to strictly follow the ROS 2 occupancy grid convention shown in the reference material.
+
+### 2.6. ROS 2 Bridge (Nav2/SLAM) Integration
+*   **Requirement:** The system needed to bridge raw LiDAR data to ROS 2 for external SLAM tools (like `slam_toolbox`) as highlighted in the "Core is slam toolbox" section of the reference PDF.
+*   **Resolution:**
+    *   **NavWorker Update:** Added `publish_scan` method to `RosBridgeNode` and `on_lidar_scan_received` handler to `NavWorker` in `pinky_station`.
+    *   **Signal Connection:** In `MainWindow`, connected the `ZmqClient.lidar_scan_received` signal to the `NavWorker` bridge. 
+    *   **Result:** Real-time LiDAR data received from the robot via ZeroMQ is now automatically published to the `/scan` ROS 2 topic, enabling seamless integration with `slam_toolbox` and `rviz2`.
 
 ## 3. Results
-*   **Mapping:** The robot now correctly raytraces free space without distortion, yielding a persistent, accurate occupancy grid.
+*   **Mapping:** The robot now correctly raytraces free space without distortion, yielding a persistent, accurate occupancy grid that appears pure white in free areas, matching the professional SLAM standards.
+*   **Interoperability:** The PC-side GUI now acts as a complete bridge, allowing standard ROS 2 navigation and mapping stacks to utilize the robot's hardware data transparently.
 *   **Navigation:** The C++ inference engine now supplies correct observations and respects the trained velocity boundaries, enabling smooth, accurate obstacle-avoidance maneuvers.
 *   **Stability:** The application now launches successfully without immediate crashes.

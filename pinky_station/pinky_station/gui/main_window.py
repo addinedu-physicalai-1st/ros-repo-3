@@ -73,6 +73,10 @@ class PinkyStationWindow(QMainWindow):
         self.nav_worker.sig_path_ready.connect(self._on_path_ready)
         self.nav_worker.start()
 
+        # Connect ROS 2 bridge to robot data
+        self.zmq_client.odom_received.connect(self.nav_worker.on_odom_received)
+        self.zmq_client.lidar_scan_received.connect(self.nav_worker.on_lidar_scan_received)
+
     def _setup_ui(self):
         # ── Toolbar ──────────────────────────────────────────────────
         self.toolbar = ToolbarWidget(default_host=self.cfg.connection.default_host)

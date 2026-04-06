@@ -14,6 +14,7 @@ try:
     from rclpy.node import Node
     from nav_msgs.msg import Odometry, Path
     from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
+    from sensor_msgs.msg import LaserScan
     from nav2_msgs.srv import ComputePathToPose
     from tf2_ros import TransformBroadcaster
     HAS_ROS2 = True
@@ -32,6 +33,7 @@ class RosBridgeNode(Node_Base):
 
         # Publishers
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
+        self.scan_pub = self.create_publisher(LaserScan, 'scan', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         # Service Clients
@@ -112,6 +114,20 @@ class RosBridgeNode(Node_Base):
         odom_msg.twist.twist.angular.z = vth
         
         self.odom_pub.publish(odom_msg)
+
+    def publish_scan(self, scan):
+        scan_msg = LaserScan()
+        scan_msg.header.stamp = self.get_clock().now().to_msg()
+        scan_msg.header.frame_id = 'rplidar_link'
+        scan_msg.angle_min = scan.angle_min
+        scan_msg.angle_max = scan.angle_max
+        scan_msg.angle_increment = scan.angle_increment
+        scan_msg.time_increment = 0.0
+        scan_msg.scan_time = 0.1  # assuming 10Hz
+        scan_msg.range_min = scan.range_min
+        scan_msg.range_max = scan.range_max
+        scan_msg.ranges = list(scan.ranges)
+        self.scan_pub.publish(scan_msg)
 
 
 class NavWorker(QThread):
@@ -200,3 +216,13 @@ class NavWorker(QThread):
             self.ros_node.publish_odom(msg.x, msg.y, msg.theta, msg.vx, msg.vth)
         except Exception as e:
             print(f"Failed to publish odom to ROS: {e}")
+
+    def on_lidar_scan_received(self, robot_id, scan):
+        """Slot to receive LiDAR scan data."""
+        if not self._running or not self.ros_node:
+            return
+        
+        try:
+            self.ros_node.publish_scan(scan)
+        except Exception as e:
+            print(f"Failed to publish scan to ROS: {e}")
