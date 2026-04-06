@@ -1,12 +1,14 @@
 import sys
 import math
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFileDialog, QFrame
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFileDialog, QFrame,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt
 
 from pinky_station.config import StationConfig
 from pinky_station.net.zmq_client import ZmqClient
+from pinky_station.core.occupancy_grid import OccupancyGridBuilder
 
 # Widgets
 from pinky_station.gui.widgets.toolbar import ToolbarWidget
@@ -43,12 +45,16 @@ class PinkyStationWindow(QMainWindow):
 
         self.active_robot_id = None
         self.current_waypoint_idx = -1
+        self.map_building_active = False
+        self.og_builder = OccupancyGridBuilder()
+        self._og_update_counter = 0
 
         self.zmq_client = ZmqClient()
         self.zmq_client.odom_received.connect(self._on_odom)
         self.zmq_client.battery_received.connect(self._on_battery)
         self.zmq_client.log_received.connect(self._on_log)
         self.zmq_client.lidar_received.connect(self._on_lidar)
+        self.zmq_client.lidar_scan_received.connect(self._on_lidar_scan)
         self.zmq_client.frame_received.connect(self._on_frame)
         self.zmq_client.sig_command_failed.connect(self._on_command_failed)
 
@@ -81,6 +87,8 @@ class PinkyStationWindow(QMainWindow):
         self.toolbar.sig_nav_resume.connect(self._on_nav_resume)
         self.toolbar.sig_nav_reset.connect(self._on_nav_reset)
         self.toolbar.sig_add_waypoint.connect(self._on_add_waypoint)
+        self.toolbar.sig_map_build_toggle.connect(self._on_map_build_toggle)
+        self.toolbar.sig_map_save.connect(self._on_map_save)
         self.main_layout.addWidget(self.toolbar)
         self.main_layout.addWidget(_hline())
 
@@ -260,6 +268,54 @@ class PinkyStationWindow(QMainWindow):
 
     def _on_add_waypoint(self):
         self.map_view.add_waypoint()
+
+    # ── Map building ─────────────────────────────────────────────────
+    def _on_map_build_toggle(self, active: bool):
+        self.map_building_active = active
+        if active:
+            self.og_builder.reset()
+            self._og_update_counter = 0
+            self.terminal_view.append_log(
+                2, "Map building started — drive the robot to scan the environment"
+            )
+        else:
+            self.terminal_view.append_log(2, "Map building stopped")
+
+    def _on_map_save(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Map", "my_map", "YAML Files (*.yaml)"
+        )
+        if not file_path:
+            return
+        # Strip extension — save() adds .pgm and .yaml
+        base = file_path.rsplit(".", 1)[0] if "." in file_path else file_path
+        pgm_path, yaml_path = self.og_builder.save(base)
+        self.terminal_view.append_log(
+            2, f"Map saved: {pgm_path}, {yaml_path}"
+        )
+
+    def _on_lidar_scan(self, robot_id: str, scan):
+        """Handle full LiDAR scan for map building."""
+        if not self.map_building_active:
+            return
+        if robot_id != self.active_robot_id:
+            return
+        if robot_id not in self.map_view.robots_pose:
+            return
+
+        rx, ry, rtheta = self.map_view.robots_pose[robot_id]
+        self.og_builder.update(scan, rx, ry, rtheta)
+
+        # Throttle QImage conversion: every 3rd scan
+        self._og_update_counter += 1
+        if self._og_update_counter % 3 == 0:
+            og_img = self.og_builder.to_qimage()
+            self.map_view.set_occupancy_grid(
+                og_img,
+                self.og_builder.resolution,
+                self.og_builder.origin_x,
+                self.og_builder.origin_y,
+            )
 
     def _on_disconnect_robot(self, robot_id: str):
         self.zmq_client.remove_robot(robot_id)

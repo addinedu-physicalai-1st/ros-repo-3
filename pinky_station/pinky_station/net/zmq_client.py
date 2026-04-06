@@ -6,6 +6,7 @@ import time
 class ZmqReceiverThread(QThread):
     odom_received = pyqtSignal(str, object)
     lidar_received = pyqtSignal(str, object)
+    lidar_scan_received = pyqtSignal(str, object)  # full LidarScan for mapping
     battery_received = pyqtSignal(str, object)
     log_received = pyqtSignal(str, object)
     frame_received = pyqtSignal(str, bytes)  # emits jpeg bytes
@@ -47,7 +48,7 @@ class ZmqReceiverThread(QThread):
                         if telemetry.HasField("odom"):
                             self.odom_received.emit(self.robot_id, telemetry.odom)
                         elif telemetry.HasField("lidar_scan"):
-                            self.lidar_received.emit(self.robot_id, telemetry.lidar_scan)
+                            self.lidar_scan_received.emit(self.robot_id, telemetry.lidar_scan)
                         elif telemetry.HasField("lidar_sectors"):
                             self.lidar_received.emit(self.robot_id, telemetry.lidar_sectors)
                         elif telemetry.HasField("battery"):
@@ -76,6 +77,7 @@ class ZmqReceiverThread(QThread):
 class ZmqClient(QObject):
     odom_received = pyqtSignal(str, object)
     lidar_received = pyqtSignal(str, object)
+    lidar_scan_received = pyqtSignal(str, object)  # full LidarScan for mapping
     battery_received = pyqtSignal(str, object)
     log_received = pyqtSignal(str, object)
     frame_received = pyqtSignal(str, bytes)
@@ -97,6 +99,7 @@ class ZmqClient(QObject):
         receiver = ZmqReceiverThread(robot_id, host, pub_port)
         receiver.odom_received.connect(self.odom_received.emit)
         receiver.lidar_received.connect(self.lidar_received.emit)
+        receiver.lidar_scan_received.connect(self.lidar_scan_received.emit)
         receiver.battery_received.connect(self.battery_received.emit)
         receiver.log_received.connect(self.log_received.emit)
         receiver.frame_received.connect(self.frame_received.emit)

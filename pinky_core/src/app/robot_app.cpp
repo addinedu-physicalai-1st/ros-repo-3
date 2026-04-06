@@ -401,7 +401,7 @@ void RobotApp::LidarLoop() {
           has_lidar_sectors_ = true;
         }
 
-        // Stream back to PC
+        // Stream sectors (compressed) to PC
         proto::SensorTelemetry t;
         t.set_robot_id(config_.robot_id);
         auto* proto_sectors = t.mutable_lidar_sectors();
@@ -410,6 +410,21 @@ void RobotApp::LidarLoop() {
           proto_sectors->add_sectors(s);
         }
         zmq_server_->PublishTelemetry(t);
+
+        // Stream full scan (for map building) to PC
+        proto::SensorTelemetry scan_t;
+        scan_t.set_robot_id(config_.robot_id);
+        auto* proto_scan = scan_t.mutable_lidar_scan();
+        proto_scan->mutable_stamp()->set_nanoseconds(scan.stamp.nanoseconds);
+        proto_scan->set_angle_min(scan.angle_min);
+        proto_scan->set_angle_max(scan.angle_max);
+        proto_scan->set_angle_increment(scan.angle_increment);
+        proto_scan->set_range_min(scan.range_min);
+        proto_scan->set_range_max(scan.range_max);
+        for (float r : scan.ranges) {
+          proto_scan->add_ranges(r);
+        }
+        zmq_server_->PublishTelemetry(scan_t);
       } else {
         ++fail_count;
         if (fail_count == 1 || fail_count == 10 || fail_count == 100 ||

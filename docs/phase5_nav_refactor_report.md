@@ -158,6 +158,64 @@ LiDAR 복구 시 자동으로 RL로 전환.
 
 ---
 
+### 3.6. SLAM 스타일 맵 그리기 기능 추가 (C++ + Python)
+
+**배경:** ROS2 SLAM Toolbox처럼 LiDAR 스캔 + 오도메트리로 Occupancy Grid Map을 실시간 구축하고,
+`.pgm` + `.yaml` 형식으로 저장하는 기능 추가.
+
+**구현 방식:**
+
+```
+[Robot] LidarLoop
+  → LidarSectors (24개, 기존 RL용)  PUB
+  → LidarScan (전체 ranges[], 신규) PUB
+
+[Station] ZmqClient
+  lidar_scan_received 시그널 (LidarScan 전용, sectors와 분리)
+
+[Station] OccupancyGridBuilder
+  update(scan, x, y, θ) — Log-odds + Bresenham raycasting
+  to_qimage()           — MapWidget 렌더링용 QImage 변환
+  save(path)            — .pgm + .yaml 저장
+
+[Station] MapWidget
+  OG 그리드를 반투명(85%) 오버레이로 렌더링 (기존 정적 맵 위에)
+
+[Station] Toolbar
+  "Map Build" 토글 버튼 + "Save Map" 버튼
+```
+
+**Occupancy Grid 파라미터:**
+
+| 항목 | 값 |
+|------|----|
+| 해상도 | 0.05 m/cell |
+| 그리드 크기 | 800×800 (40m×40m) |
+| 원점 | (-20, -20) |
+| 최대 LiDAR 범위 | 12 m |
+| occupied 임계값 | 0.65 (probability) |
+| free 임계값 | 0.196 |
+
+**맵 색상 (ROS2 map_server 호환):**
+- 255 (흰색): free
+- 0 (검정): occupied
+- 205 (회색): unknown
+
+**사용 흐름:**
+1. Map Build 버튼 ON → OG 그리드 초기화
+2. 로봇 주행/조종 → LiDAR 스캔 수신마다 그리드 자동 갱신 (3스캔마다 화면 갱신)
+3. Save Map → 파일 다이얼로그 → `.pgm` + `.yaml` 저장
+
+**추가/수정 파일:**
+- `pinky_core/src/app/robot_app.cpp`: `LidarLoop()`에 전체 `LidarScan` PUB 추가
+- `pinky_station/pinky_station/net/zmq_client.py`: `lidar_scan_received` 시그널 분리
+- `pinky_station/pinky_station/core/occupancy_grid.py`: `OccupancyGridBuilder` 신규 구현
+- `pinky_station/pinky_station/gui/widgets/toolbar.py`: Map Build / Save Map 버튼 추가
+- `pinky_station/pinky_station/gui/widgets/map_widget.py`: OG 오버레이 렌더링 추가
+- `pinky_station/pinky_station/gui/main_window.py`: 맵 빌드 시그널 연결 및 저장 처리
+
+---
+
 ## 4. 변경 파일 목록
 
 | 파일 | 변경 내용 |
@@ -167,7 +225,9 @@ LiDAR 복구 시 자동으로 RL로 전환.
 | `pinky_station/pinky_station/gui/widgets/video_view.py` | 이중 hflip 제거 |
 | `pinky_station/pinky_station/gui/widgets/map_widget.py` | Catmull-Rom 스플라인 경로, `_catmull_rom_chain()` 추가 |
 | `pinky_station/pinky_station/gui/widgets/toolbar.py` | Start 버튼 상태 관리 |
-| `pinky_station/pinky_station/gui/main_window.py` | `current_waypoint_idx` map_view 동기화, goal 도달 시 Start 복원 |
+| `pinky_station/pinky_station/gui/main_window.py` | `current_waypoint_idx` map_view 동기화, goal 도달 시 Start 복원, 맵 빌드 시그널 연결 |
+| `pinky_station/pinky_station/net/zmq_client.py` | `lidar_scan_received` 시그널 추가 (full scan / sectors 분리) |
+| `pinky_station/pinky_station/core/occupancy_grid.py` | `OccupancyGridBuilder` 신규 — log-odds raycasting, .pgm/.yaml 저장 |
 
 ---
 
@@ -182,3 +242,5 @@ LiDAR 복구 시 자동으로 RL로 전환.
 - [ ] 카메라 배경이 실제 환경과 좌우 일치 확인
 - [ ] Start → 주행 중 Start 버튼 비활성화 확인
 - [ ] Reset 또는 목표 도달 후 Start 버튼 재활성화 확인
+- [ ] LiDAR 정상 동작 시 Map Build ON → 로봇 주행하면서 OG 맵 실시간 갱신 확인
+- [ ] Save Map → .pgm/.yaml 저장 후 ROS2 map_server 또는 Load Map으로 로드 확인
