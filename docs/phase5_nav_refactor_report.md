@@ -129,12 +129,41 @@ LiDAR 복구 시 자동으로 RL로 전환.
 
 ---
 
+### 3.5. P-control 안전 속도 감소 및 LiDAR 실패 진단 (C++)
+
+**배경:** 실기 테스트에서 `has_lidar=0` 상태로 P-control이 kVMax(0.26 m/s)로 주행하여
+장애물에 충돌하는 문제 발생.
+
+**P-control 속도 조정:**
+
+| 항목 | 이전 | 이후 |
+|------|------|------|
+| 최대 전진 속도 | 0.26 m/s (kVMax) | 0.12 m/s |
+| 최대 회전 속도 | 1.0 rad/s | 0.8 rad/s |
+| 전진 게인 | `0.4 * dist` | `0.25 * dist` |
+| 목표 감속 | 없음 | 거리에 비례해 자동 감속 |
+| 회전 임계 | 각도 크면 turn_scale 감소 | 90도 이상 시 거의 제자리 회전 |
+
+**LiDAR 진단 로그 추가:**
+- `Run()`: `lidar_->StartScan()` 반환값 확인 — `"LiDAR scan started."` 또는
+  `"LiDAR scan start FAILED — P-control only."` 출력
+- `LidarLoop()`: `GetScan()` 실패 횟수 누적, 1/10/100/500 단위로 경고 출력
+  ```
+  [LIDAR] GetScan failed (count=1)
+  [LIDAR] First scan received (N points, after M failures)
+  ```
+
+**수정 파일:**
+- `pinky_core/src/app/robot_app.cpp`
+
+---
+
 ## 4. 변경 파일 목록
 
 | 파일 | 변경 내용 |
 |------|-----------|
 | `pinky_core/include/pinky_core/app/robot_app.h` | `NavLoop()`, `nav_thread_`, `latest_sectors_`, `has_lidar_sectors_` 추가 |
-| `pinky_core/src/app/robot_app.cpp` | `LidarLoop` 단순화, `NavLoop` 신규 구현, 진단 로그 추가 |
+| `pinky_core/src/app/robot_app.cpp` | `LidarLoop` 단순화 및 실패 진단, `NavLoop` 신규 구현, P-control 안전 속도 적용 |
 | `pinky_station/pinky_station/gui/widgets/video_view.py` | 이중 hflip 제거 |
 | `pinky_station/pinky_station/gui/widgets/map_widget.py` | Catmull-Rom 스플라인 경로, `_catmull_rom_chain()` 추가 |
 | `pinky_station/pinky_station/gui/widgets/toolbar.py` | Start 버튼 상태 관리 |
@@ -144,10 +173,11 @@ LiDAR 복구 시 자동으로 RL로 전환.
 
 ## 5. 테스트 체크리스트
 
-- [ ] 로봇 빌드 후 `[LIDAR] First scan received` 확인
-- [ ] nav_goal 전송 후 `[NAV] Navigation active` 로그 확인
-- [ ] P-control 모드(`has_lidar=0`)에서 로봇 물리적 이동 확인
-- [ ] LiDAR 정상 시 `[RL] step=0` 로그 및 RL 주행 확인
+- [x] nav_goal 전송 후 `[NAV] Navigation active` 로그 확인
+- [x] P-control 모드(`has_lidar=0`)에서 로봇 물리적 이동 확인
+- [ ] 빌드 후 `LiDAR scan started.` 또는 `FAILED` 로그로 StartScan 상태 확인
+- [ ] `[LIDAR] GetScan failed` 카운트 확인 → LiDAR 스캔 실패 원인 파악
+- [ ] `[LIDAR] First scan received` 확인 후 `has_lidar=1` 전환 및 RL 주행 확인
 - [ ] 맵 위젯에서 곡선 경로가 로봇 이동에 따라 실시간 갱신 확인
 - [ ] 카메라 배경이 실제 환경과 좌우 일치 확인
 - [ ] Start → 주행 중 Start 버튼 비활성화 확인
