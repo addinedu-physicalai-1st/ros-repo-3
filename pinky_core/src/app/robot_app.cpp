@@ -371,12 +371,18 @@ void RobotApp::AdcLoop() {
 }
 
 void RobotApp::LidarLoop() {
+  int scan_count = 0;
   while(running_.load()) {
     if (lidar_) {
       LidarScan scan;
       if (lidar_->GetScan(scan)) {
+        if (scan_count == 0) {
+          std::cout << "[LIDAR] First scan received (" << scan.ranges.size() << " points)\n";
+        }
+        ++scan_count;
+
         LidarSectors sectors = lidar_processor_.Process(scan);
-        
+
         // Stream back to PC
         proto::SensorTelemetry t;
         t.set_robot_id(config_.robot_id);
@@ -392,16 +398,19 @@ void RobotApp::LidarLoop() {
         NavGoal goal;
         Odometry odom;
         int step;
-        
+
         {
           std::lock_guard<std::mutex> lock(state_mutex_);
           is_active = rl_navigation_active_;
           goal = current_goal_;
           odom = current_odom_;
-          step = rl_step_count_++;
+          step = rl_navigation_active_ ? rl_step_count_++ : rl_step_count_;
         }
 
         if (is_active) {
+          if (step == 0) {
+            std::cout << "[NAV] RL navigation active, starting inference\n";
+          }
           if (onnx_actor_) {
             obs_builder_.SetGoal(goal.x, goal.y);
             std::array<float, 28> obs = obs_builder_.Build(sectors, odom, step);
@@ -431,7 +440,13 @@ void RobotApp::LidarLoop() {
             float dy = static_cast<float>(goal.y - odom.y);
             float dist = std::sqrt(dx * dx + dy * dy);
 
+            if (step % 50 == 0) {
+              std::cout << "[P-CTRL] dist=" << dist
+                        << " pos=(" << odom.x << "," << odom.y << ")\n";
+            }
+
             if (dist < 0.30f) {
+              std::cout << "[NAV] Goal reached (P-control)\n";
               std::lock_guard<std::mutex> lock(state_mutex_);
               rl_navigation_active_ = false;
               target_cmd_vel_ = {0.0f, 0.0f};

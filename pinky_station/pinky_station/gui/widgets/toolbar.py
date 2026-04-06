@@ -90,10 +90,16 @@ class ToolbarWidget(QWidget):
         self.btn_pose.toggled.connect(self.sig_set_pose_mode.emit)
         self.btn_load_map.clicked.connect(self.sig_load_map.emit)
 
-        self.btn_start.clicked.connect(self.sig_nav_start.emit)
+        self.btn_start.clicked.connect(self._on_start_clicked)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
         self.btn_reset.clicked.connect(self._on_reset_clicked)
         self.btn_add_waypoint.clicked.connect(self.sig_add_waypoint.emit)
+
+    def _on_start_clicked(self):
+        self.sig_nav_start.emit()
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.btn_add_waypoint.setEnabled(False)
 
     def _on_add_robot_clicked(self):
         robot_id = self.input_id.text().strip()
@@ -126,6 +132,8 @@ class ToolbarWidget(QWidget):
 
     def _on_reset_clicked(self):
         self.btn_stop.setText("⏸  Stop")
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(True)
         self.sig_nav_reset.emit()
 
     def set_status(self, text: str, color: str):

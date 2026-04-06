@@ -21,6 +21,7 @@ class MapWidget(QWidget):
         self.active_robot_id = None
 
         self.waypoints = [] # List of (x, y)
+        self.current_waypoint_idx = -1  # -1 = not navigating
         self.potential_waypoint = None
 
         self.scale_factor = scale
@@ -181,13 +182,34 @@ class MapWidget(QWidget):
         painter.setPen(QPen(QColor(0, 255, 0), 2))
         painter.drawLine(p0, py)
 
-        # Draw Path (lines between waypoints)
+        # Draw planned path (static waypoint connections — dim)
         if len(self.waypoints) >= 2:
-            painter.setPen(QPen(QColor(255, 255, 0, 100), 2, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(255, 255, 0, 60), 1, Qt.PenStyle.DashLine))
             for i in range(len(self.waypoints) - 1):
                 p0 = world_to_screen.map(QPointF(*self.waypoints[i]))
                 p1 = world_to_screen.map(QPointF(*self.waypoints[i+1]))
                 painter.drawLine(p0, p1)
+
+        # Draw live navigation path (robot → current goal → remaining waypoints)
+        if (self.current_waypoint_idx >= 0
+                and self.active_robot_id
+                and self.active_robot_id in self.robots_pose
+                and self.current_waypoint_idx < len(self.waypoints)):
+            rx, ry, _ = self.robots_pose[self.active_robot_id]
+            nav_pen = QPen(QColor(0, 200, 255, 200), 3)
+            painter.setPen(nav_pen)
+
+            # Robot position → current target waypoint
+            robot_screen = world_to_screen.map(QPointF(rx, ry))
+            target_screen = world_to_screen.map(
+                QPointF(*self.waypoints[self.current_waypoint_idx]))
+            painter.drawLine(robot_screen, target_screen)
+
+            # Current target → remaining waypoints
+            for i in range(self.current_waypoint_idx, len(self.waypoints) - 1):
+                wp0 = world_to_screen.map(QPointF(*self.waypoints[i]))
+                wp1 = world_to_screen.map(QPointF(*self.waypoints[i + 1]))
+                painter.drawLine(wp0, wp1)
 
         # Draw Odometry trail for active robot
         if len(self.trail) >= 2:

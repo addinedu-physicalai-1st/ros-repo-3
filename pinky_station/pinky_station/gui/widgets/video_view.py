@@ -30,7 +30,6 @@ class VideoViewWidget(QWidget):
 
         image = QImage()
         if image.loadFromData(jpeg_data, "JPEG"):
-            image = image.mirrored(True, False)  # horizontal flip
             pixmap = QPixmap.fromImage(image)
             w = self.lbl_image.width()
             h = self.lbl_image.height()

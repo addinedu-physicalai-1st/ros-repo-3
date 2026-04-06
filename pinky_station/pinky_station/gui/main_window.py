@@ -226,6 +226,7 @@ class PinkyStationWindow(QMainWindow):
     def _on_nav_start(self):
         if self.active_robot_id and self.map_view.waypoints:
             self.current_waypoint_idx = 0
+            self.map_view.current_waypoint_idx = 0
             wx, wy = self.map_view.waypoints[0]
             self.zmq_client.send_nav_goal(self.active_robot_id, wx, wy, 0.0)
             self.terminal_view.append_log(
@@ -240,6 +241,7 @@ class PinkyStationWindow(QMainWindow):
     def _on_nav_resume(self):
         if (self.active_robot_id and self.map_view.waypoints
                 and self.current_waypoint_idx >= 0):
+            self.map_view.current_waypoint_idx = self.current_waypoint_idx
             wx, wy = self.map_view.waypoints[self.current_waypoint_idx]
             self.zmq_client.send_nav_goal(self.active_robot_id, wx, wy, 0.0)
             self.terminal_view.append_log(
@@ -253,6 +255,7 @@ class PinkyStationWindow(QMainWindow):
             self.zmq_client.send_nav_cancel(self.active_robot_id)
         self.map_view.clear_waypoints()
         self.current_waypoint_idx = -1
+        self.map_view.current_waypoint_idx = -1
         self.terminal_view.append_log(2, "Navigation reset")
 
     def _on_add_waypoint(self):
@@ -263,6 +266,7 @@ class PinkyStationWindow(QMainWindow):
         if self.active_robot_id == robot_id:
             self.active_robot_id = None
             self.current_waypoint_idx = -1
+            self.map_view.current_waypoint_idx = -1
         self.terminal_view.append_log(2, f"Robot {robot_id} disconnected")
         count = len(self.zmq_client.robots)
         self.toolbar.set_status(
@@ -284,6 +288,7 @@ class PinkyStationWindow(QMainWindow):
 
         if dist < 0.3:
             self.current_waypoint_idx += 1
+            self.map_view.current_waypoint_idx = self.current_waypoint_idx
             if self.current_waypoint_idx < len(self.map_view.waypoints):
                 nwx, nwy = self.map_view.waypoints[self.current_waypoint_idx]
                 self.zmq_client.send_nav_goal(self.active_robot_id, nwx, nwy, 0.0)
@@ -292,8 +297,10 @@ class PinkyStationWindow(QMainWindow):
                 )
             else:
                 self.current_waypoint_idx = -1
+                self.map_view.current_waypoint_idx = -1
                 self.zmq_client.send_nav_cancel(self.active_robot_id)
                 self.terminal_view.append_log(2, "Final goal reached!")
+                self.toolbar.btn_start.setEnabled(True)
 
     def _on_battery(self, robot_id: str, msg):
         if robot_id == self.active_robot_id:
