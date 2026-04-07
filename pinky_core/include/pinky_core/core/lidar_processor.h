@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pinky_core/common/constants.h"
 #include "pinky_core/common/types.h"
 
 namespace pinky {
@@ -12,7 +13,9 @@ namespace pinky {
 //   4. Normalize by max_range
 class LidarProcessor {
  public:
-  explicit LidarProcessor(int num_sectors = 24, float max_range = 3.5f);
+  explicit LidarProcessor(int num_sectors = kLidarSectors,
+                          float max_range = kMaxLidarDist,
+                          float min_range_filter = kLidarMinRange);
 
   // Process raw scan -> 24 normalized sectors in [0, 1].
   LidarSectors Process(const LidarScan& scan) const;
@@ -26,6 +29,7 @@ class LidarProcessor {
  private:
   int num_sectors_;
   float max_range_;
+  float min_range_filter_;
 };
 
 }  // namespace pinky

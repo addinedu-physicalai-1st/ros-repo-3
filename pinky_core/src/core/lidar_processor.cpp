@@ -6,8 +6,11 @@
 
 namespace pinky {
 
-LidarProcessor::LidarProcessor(int num_sectors, float max_range)
-    : num_sectors_(num_sectors), max_range_(max_range) {}
+LidarProcessor::LidarProcessor(int num_sectors, float max_range,
+                               float min_range_filter)
+    : num_sectors_(num_sectors),
+      max_range_(max_range),
+      min_range_filter_(min_range_filter) {}
 
 LidarSectors LidarProcessor::Process(const LidarScan& scan) const {
   return Process(scan.ranges.data(), static_cast<int>(scan.ranges.size()));
@@ -48,7 +51,7 @@ LidarSectors LidarProcessor::Process(const float* ranges,
 
     float sector_min = max_range_;
     for (int j = start; j < end; ++j) {
-      if (cleaned[j] > 0.10f) { // ignore noise below RPLIDAR min range (~15cm)
+      if (cleaned[j] > min_range_filter_) {
         sector_min = std::min(sector_min, cleaned[j]);
       }
     }

@@ -88,6 +88,23 @@ bool LoadRlConfig(const std::string& yaml_path, RlConfig& config) {
     if (nav["goal_tolerance"])    config.goal_tolerance    = nav["goal_tolerance"].as<float>();
     if (nav["lookahead_dist"])    config.lookahead_dist    = nav["lookahead_dist"].as<float>();
     if (nav["control_period_ms"]) config.control_period_ms = nav["control_period_ms"].as<double>();
+
+    constexpr float kDegToRad = static_cast<float>(kPi) / 180.0f;
+    if (nav["turn_first_enter_deg"])
+      config.turn_first_enter_rad = nav["turn_first_enter_deg"].as<float>() * kDegToRad;
+    if (nav["turn_first_exit_deg"])
+      config.turn_first_exit_rad = nav["turn_first_exit_deg"].as<float>() * kDegToRad;
+    if (nav["ema_alpha"])        config.ema_alpha        = nav["ema_alpha"].as<float>();
+    if (nav["angular_deadzone"]) config.angular_deadzone = nav["angular_deadzone"].as<float>();
+    if (nav["safety_stop_dist"]) config.safety_stop_dist = nav["safety_stop_dist"].as<float>();
+    if (nav["safety_scale_dist"]) config.safety_scale_dist = nav["safety_scale_dist"].as<float>();
+    if (nav["pctrl_v_max"])      config.pctrl_v_max      = nav["pctrl_v_max"].as<float>();
+    if (nav["pctrl_w_max"])      config.pctrl_w_max      = nav["pctrl_w_max"].as<float>();
+  }
+
+  // lidar
+  if (auto lid = root["lidar"]) {
+    if (lid["min_range"]) config.lidar_min_range = lid["min_range"].as<float>();
   }
 
   // emotion

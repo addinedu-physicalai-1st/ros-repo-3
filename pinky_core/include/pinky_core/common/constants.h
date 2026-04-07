@@ -35,15 +35,28 @@ constexpr int    kActionDim       = 2;
 constexpr float  kVMin            = 0.0f;    // m/s
 constexpr float  kVMax            = 0.26f;   // m/s
 constexpr float  kWMax            = 1.0f;    // rad/s
-constexpr float  kKpV             = 1.5f;    // PD linear proportional
-constexpr float  kKdV             = 0.3f;    // PD linear derivative
-constexpr float  kKpW             = 1.5f;    // PD angular proportional
-constexpr float  kKdW             = 0.3f;    // PD angular derivative
+constexpr float  kKpV             = 0.5f;    // PD linear proportional
+constexpr float  kKdV             = 0.1f;    // PD linear derivative
+constexpr float  kKpW             = 1.0f;    // PD angular proportional
+constexpr float  kKdW             = 0.2f;    // PD angular derivative
 constexpr int    kMaxSteps        = 750;
 constexpr float  kGoalDistScale   = 5.0f;    // normalization divisor
 constexpr float  kGoalTolerance   = 0.15f;   // meters
 constexpr float  kLookaheadDist   = 0.5f;    // meters
 constexpr double kControlPeriodMs = 50.0;    // 20Hz
+
+// ---------------------------------------------------------------------------
+// NavLoop defaults (overridden by rl_config.yaml at runtime)
+// ---------------------------------------------------------------------------
+constexpr float  kTurnFirstEnterRad = 1.833f;   // 105 deg
+constexpr float  kTurnFirstExitRad  = 1.396f;   // 80 deg
+constexpr float  kEmaAlpha          = 0.2f;
+constexpr float  kAngularDeadzone   = 0.05f;
+constexpr float  kSafetyStopDist    = 0.12f;    // meters
+constexpr float  kSafetyScaleDist   = 0.25f;    // meters
+constexpr float  kPCtrlVMax         = 0.12f;    // m/s
+constexpr float  kPCtrlWMax         = 0.8f;     // rad/s
+constexpr float  kLidarMinRange     = 0.15f;    // RPLIDAR S2 min valid range
 
 // ---------------------------------------------------------------------------
 // Battery

@@ -25,6 +25,7 @@ RobotApp::RobotApp(const RobotConfig& config)
     : config_(config),
       diff_drive_(config.wheel_radius, config.wheel_base, config.max_rpm),
       odom_calc_(config.wheel_radius, config.wheel_base),
+      lidar_processor_(kLidarSectors, kMaxLidarDist, config.rl.lidar_min_range),
       obs_builder_(config.rl.goal_dist_scale, config.rl.max_steps),
       rl_controller_(config.rl.kp_v, config.rl.kd_v,
                      config.rl.kp_w, config.rl.kd_w,
@@ -177,6 +178,7 @@ void RobotApp::OnCommand(const proto::ControlCommand& cmd, proto::CommandAck& ac
     current_goal_.theta = cmd.nav_goal().theta();
     rl_navigation_active_ = true;
     rl_step_count_ = 0;
+    in_turn_first_ = false;
     smoothed_rl_action_ = {0.0f, 0.0f};
     std::cout << "[NAV] Goal received: (" << current_goal_.x
               << ", " << current_goal_.y << ", " << current_goal_.theta << ")\n";
@@ -184,6 +186,7 @@ void RobotApp::OnCommand(const proto::ControlCommand& cmd, proto::CommandAck& ac
   } else if (cmd.has_nav_cancel()) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     rl_navigation_active_ = false;
+    in_turn_first_ = false;
     target_cmd_vel_ = {0.0f, 0.0f};
     std::cout << "[NAV] Navigation canceled\n";
     ack.set_message("Nav canceled");
@@ -447,7 +450,7 @@ void RobotApp::NavLoop() {
   // Mode tracking for transition logs (persists across loop iterations)
   enum class NavMode { kIdle, kTurnFirst, kRl, kPCtrl };
   NavMode prev_mode = NavMode::kIdle;
-  constexpr float kRadToDeg = 180.0f / static_cast<float>(M_PI);
+  constexpr float kRadToDeg = 180.0f / static_cast<float>(kPi);
 
   while (running_.load()) {
     auto start_time = std::chrono::steady_clock::now();
@@ -489,28 +492,31 @@ void RobotApp::NavLoop() {
       // Pre-compute angle_diff (needed for turn-first check and P-control)
       float goal_angle_world = std::atan2(dy, dx);
       float angle_diff = goal_angle_world - static_cast<float>(odom.theta);
-      while (angle_diff > static_cast<float>(M_PI))
-        angle_diff -= 2.0f * static_cast<float>(M_PI);
-      while (angle_diff < -static_cast<float>(M_PI))
-        angle_diff += 2.0f * static_cast<float>(M_PI);
+      while (angle_diff > static_cast<float>(kPi))
+        angle_diff -= static_cast<float>(kTwoPi);
+      while (angle_diff < -static_cast<float>(kPi))
+        angle_diff += static_cast<float>(kTwoPi);
 
-      // Threshold: goal is more than 100° behind → rotate in place first
-      // This overrides the RL model which may blindly go forward.
-      constexpr float kTurnFirstThresholdRad = 1.745f;  // 100°
-      constexpr float kPCtrlVMax = 0.12f;
-      constexpr float kPCtrlWMax = 0.8f;
+      // Hysteresis for turn-first mode: enter at wide angle, exit at narrower.
+      // Prevents chattering when goal is near the threshold boundary.
+      float abs_angle = std::abs(angle_diff);
+      if (!in_turn_first_ && abs_angle > config_.rl.turn_first_enter_rad) {
+        in_turn_first_ = true;
+      } else if (in_turn_first_ && abs_angle < config_.rl.turn_first_exit_rad) {
+        in_turn_first_ = false;
+      }
 
       if (dist < config_.rl.goal_tolerance) {
         // ── Goal reached ──────────────────────────────────────────────
         std::cout << "[NAV] Goal reached! dist=" << dist << "\n";
         std::lock_guard<std::mutex> lock(state_mutex_);
         rl_navigation_active_ = false;
+        in_turn_first_ = false;
         target_cmd_vel_ = {0.0f, 0.0f};
         prev_mode = NavMode::kIdle;
 
-      } else if (std::abs(angle_diff) > kTurnFirstThresholdRad) {
+      } else if (in_turn_first_) {
         // ── Turn-first mode ───────────────────────────────────────────
-        // Goal is > 100° behind: rotate in place before driving.
         NavMode cur_mode = NavMode::kTurnFirst;
         if (cur_mode != prev_mode) {
           std::cout << "[NAV] >> TURN-FIRST"
@@ -518,7 +524,7 @@ void RobotApp::NavLoop() {
                     << " dist=" << dist << "m\n";
           prev_mode = cur_mode;
         }
-        CmdVel cmd{0.0f, std::copysign(kWMax * 0.8f, angle_diff)};
+        CmdVel cmd{0.0f, std::copysign(config_.rl.pctrl_w_max, angle_diff)};
         if (step % 20 == 0) {
           std::cout << "[NAV] Turn-first: step=" << step
                     << " angle=" << angle_diff * kRadToDeg << "deg"
@@ -538,15 +544,13 @@ void RobotApp::NavLoop() {
         }
 
         obs_builder_.SetGoal(goal.x, goal.y);
-        std::array<float, 28> obs = obs_builder_.Build(sectors, odom, step);
+        std::array<float, kStateDim> obs = obs_builder_.Build(sectors, odom, step);
 
-        // Log full 28D observation vector at nav start and every 100 steps.
-        // Format: lidar[0..23] | dist_norm | cos_angle | sin_angle | step_progress
         if (step == 0 || step % 100 == 0) {
           std::cout << "[OBS] step=" << step << " lidar=[";
-          for (int i = 0; i < 24; ++i) {
+          for (int i = 0; i < kLidarSectors; ++i) {
             std::cout << obs[i];
-            if (i < 23) std::cout << ",";
+            if (i < kLidarSectors - 1) std::cout << ",";
           }
           std::cout << "]"
                     << " dist_n=" << obs[24]
@@ -555,23 +559,20 @@ void RobotApp::NavLoop() {
                     << " prog=" << obs[27] << "\n";
         }
 
-        std::array<float, 2> raw_action = onnx_actor_->Infer(obs);
+        std::array<float, kActionDim> raw_action = onnx_actor_->Infer(obs);
 
-        // EMA smoothing: reduces chattering without adding latency at low freq.
-        // alpha=0.4 → 40% new value, 60% carry-over at 20 Hz.
-        constexpr float kEmaAlpha = 0.4f;
+        // EMA smoothing
+        const float alpha = config_.rl.ema_alpha;
         smoothed_rl_action_[0] =
-            kEmaAlpha * raw_action[0] + (1.0f - kEmaAlpha) * smoothed_rl_action_[0];
+            alpha * raw_action[0] + (1.0f - alpha) * smoothed_rl_action_[0];
         smoothed_rl_action_[1] =
-            kEmaAlpha * raw_action[1] + (1.0f - kEmaAlpha) * smoothed_rl_action_[1];
+            alpha * raw_action[1] + (1.0f - alpha) * smoothed_rl_action_[1];
 
-        // Angular velocity deadzone: suppress micro-corrections when driving straight.
-        constexpr float kAngularDeadzone = 0.05f;  // normalised action units
-        if (std::abs(smoothed_rl_action_[1]) < kAngularDeadzone) {
+        // Angular velocity deadzone
+        if (std::abs(smoothed_rl_action_[1]) < config_.rl.angular_deadzone) {
           smoothed_rl_action_[1] = 0.0f;
         }
 
-        // Capture pre-PD target for log comparison.
         CmdVel pd_target = rl_controller_.ActionToTarget(smoothed_rl_action_);
 
         CmdVel cmd = rl_controller_.Compute(
@@ -580,17 +581,18 @@ void RobotApp::NavLoop() {
             static_cast<float>(odom.vth));
 
         // Safety layer: limit forward speed when front sectors are close.
-        // Sectors[10..14] cover the front ±30° arc (sector[12] = direct front).
         float front_min = 1.0f;
         for (int s = 10; s <= 14; ++s) {
           front_min = std::min(front_min, sectors.sectors[s]);
         }
-        float front_dist = front_min * kMaxLidarDist;  // metres
+        float front_dist = front_min * kMaxLidarDist;
         if (cmd.linear_x > 0.0f) {
-          if (front_dist < 0.12f) {
-            cmd.linear_x = 0.0f;  // emergency stop
-          } else if (front_dist < 0.25f) {
-            float scale = (front_dist - 0.12f) / 0.13f;
+          const float stop_dist = config_.rl.safety_stop_dist;
+          const float scale_dist = config_.rl.safety_scale_dist;
+          if (front_dist < stop_dist) {
+            cmd.linear_x = 0.0f;
+          } else if (front_dist < scale_dist) {
+            float scale = (front_dist - stop_dist) / (scale_dist - stop_dist);
             cmd.linear_x *= scale;
           }
         }
@@ -613,7 +615,6 @@ void RobotApp::NavLoop() {
 
       } else {
         // ── P-control fallback ────────────────────────────────────────
-        // Works without LiDAR — reduced speed, no obstacle avoidance.
         NavMode cur_mode = NavMode::kPCtrl;
         if (cur_mode != prev_mode) {
           std::cout << "[NAV] >> P-CTRL fallback"
@@ -621,12 +622,13 @@ void RobotApp::NavLoop() {
                     << " no_onnx=" << (onnx_actor_ == nullptr) << "\n";
           prev_mode = cur_mode;
         }
-        float abs_angle = std::abs(angle_diff);
-        float turn_scale = std::max(0.0f, 1.0f - abs_angle / (0.5f * static_cast<float>(M_PI)));
-        float speed = std::min(0.25f * dist, kPCtrlVMax) * turn_scale;
+        float turn_scale = std::max(0.0f,
+            1.0f - abs_angle / (0.5f * static_cast<float>(kPi)));
+        float speed = std::min(0.25f * dist, config_.rl.pctrl_v_max) * turn_scale;
         CmdVel cmd{
           std::max(speed, 0.0f),
-          std::clamp(1.5f * angle_diff, -kPCtrlWMax, kPCtrlWMax)
+          Clamp(1.5f * angle_diff, -config_.rl.pctrl_w_max,
+                config_.rl.pctrl_w_max)
         };
 
         if (step % 20 == 0) {

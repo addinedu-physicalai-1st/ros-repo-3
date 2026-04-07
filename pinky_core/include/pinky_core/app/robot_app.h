@@ -42,6 +42,17 @@ struct RlConfig {
   float lookahead_dist{kLookaheadDist};
   double control_period_ms{kControlPeriodMs};
 
+  // NavLoop behavior (previously hardcoded)
+  float turn_first_enter_rad{kTurnFirstEnterRad};
+  float turn_first_exit_rad{kTurnFirstExitRad};
+  float ema_alpha{kEmaAlpha};
+  float angular_deadzone{kAngularDeadzone};
+  float safety_stop_dist{kSafetyStopDist};
+  float safety_scale_dist{kSafetyScaleDist};
+  float pctrl_v_max{kPCtrlVMax};
+  float pctrl_w_max{kPCtrlWMax};
+  float lidar_min_range{kLidarMinRange};
+
   std::string emotion_dir{"emotion"};
 };
 
@@ -98,17 +109,18 @@ class RobotApp {
   OdometryAccumulator odom_calc_;
   SensorFusion sensor_fusion_;
   BatteryMonitor battery_monitor_{kBattVMin, kBattVMax, kBattLowThresh};
-  LidarProcessor lidar_processor_{kLidarSectors, kMaxLidarDist};
+  LidarProcessor lidar_processor_;
 
   std::unique_ptr<OnnxActor> onnx_actor_;
 
-  ObservationBuilder obs_builder_{kGoalDistScale, kMaxSteps};
-  RlController rl_controller_{kKpV, kKdV, kKpW, kKdW, kVMin, kVMax, kWMax};
+  ObservationBuilder obs_builder_;
+  RlController rl_controller_;
 
   std::mutex state_mutex_;
   Odometry current_odom_;
   CmdVel target_cmd_vel_;
   bool rl_navigation_active_{false};
+  bool in_turn_first_{false};
   NavGoal current_goal_;
   int rl_step_count_{0};
   LidarSectors latest_sectors_;
