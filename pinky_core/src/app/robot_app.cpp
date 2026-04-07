@@ -500,7 +500,7 @@ void RobotApp::NavLoop() {
       constexpr float kPCtrlVMax = 0.12f;
       constexpr float kPCtrlWMax = 0.8f;
 
-      if (dist < 0.30f) {
+      if (dist < config_.rl.goal_tolerance) {
         // ── Goal reached ──────────────────────────────────────────────
         std::cout << "[NAV] Goal reached! dist=" << dist << "\n";
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -587,10 +587,10 @@ void RobotApp::NavLoop() {
         }
         float front_dist = front_min * kMaxLidarDist;  // metres
         if (cmd.linear_x > 0.0f) {
-          if (front_dist < 0.20f) {
+          if (front_dist < 0.12f) {
             cmd.linear_x = 0.0f;  // emergency stop
-          } else if (front_dist < 0.40f) {
-            float scale = (front_dist - 0.20f) / 0.20f;
+          } else if (front_dist < 0.25f) {
+            float scale = (front_dist - 0.12f) / 0.13f;
             cmd.linear_x *= scale;
           }
         }

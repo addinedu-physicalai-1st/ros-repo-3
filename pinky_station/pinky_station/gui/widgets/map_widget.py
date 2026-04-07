@@ -170,13 +170,13 @@ class MapWidget(QWidget):
             # Draw image flipped to match world coordinates
             painter.drawImage(map_rect_screen, self.map_image)
 
-        # Draw Origin Axes
-        painter.setPen(QPen(QColor(255, 0, 0), 2))
+        # Draw Origin Axes (dimmed — world origin reference only)
         p0 = world_to_screen.map(QPointF(0, 0))
-        px = world_to_screen.map(QPointF(1, 0))
-        py = world_to_screen.map(QPointF(0, 1))
+        px = world_to_screen.map(QPointF(0.5, 0))
+        py = world_to_screen.map(QPointF(0, 0.5))
+        painter.setPen(QPen(QColor(255, 0, 0, 60), 1))
         painter.drawLine(p0, px)
-        painter.setPen(QPen(QColor(0, 255, 0), 2))
+        painter.setPen(QPen(QColor(0, 255, 0, 60), 1))
         painter.drawLine(p0, py)
 
         # Draw planned path (static waypoint connections — dim dashed)
@@ -267,26 +267,40 @@ class MapWidget(QWidget):
             painter.drawLine(QPointF(hx, hy), QPointF(t1x, t1y))
             painter.drawLine(QPointF(hx, hy), QPointF(t2x, t2y))
 
-        # Draw Robots
+        # Draw Robots with TF frame (red=forward/X, green=left/Y)
         robot_radius = 8
+        tf_len = robot_radius * 3
         for rid, (rx, ry, rtheta) in self.robots_pose.items():
             r_screen = world_to_screen.map(QPointF(rx, ry))
-            
+
             if rid == self.active_robot_id:
-                # Highlight active robot with cyan glow/border
                 painter.setPen(QPen(QColor(0, 255, 255), 3))
                 painter.setBrush(QColor(0, 200, 255))
             else:
                 painter.setPen(QPen(QColor(150, 150, 150), 1))
                 painter.setBrush(QColor(100, 100, 100))
-                
+
             painter.drawEllipse(r_screen, robot_radius, robot_radius)
-            
-            # Heading line
-            painter.setPen(QPen(Qt.GlobalColor.white, 2))
-            hx = r_screen.x() + math.cos(-rtheta) * robot_radius * 2
-            hy = r_screen.y() + math.sin(-rtheta) * robot_radius * 2
-            painter.drawLine(r_screen, QPointF(hx, hy))
+
+            # Robot-local TF axes (screen Y is inverted relative to world Y)
+            cos_t = math.cos(rtheta)
+            sin_t = math.sin(rtheta)
+            # X axis (forward) — red
+            fx = r_screen.x() + cos_t * tf_len
+            fy = r_screen.y() - sin_t * tf_len
+            painter.setPen(QPen(QColor(255, 60, 60), 2))
+            painter.drawLine(r_screen, QPointF(fx, fy))
+            # Y axis (left) — green
+            lx = r_screen.x() - sin_t * tf_len
+            ly = r_screen.y() - cos_t * tf_len
+            painter.setPen(QPen(QColor(60, 255, 60), 2))
+            painter.drawLine(r_screen, QPointF(lx, ly))
+
+    def center_on(self, world_x: float, world_y: float):
+        """Center the map view on the given world coordinate."""
+        self.offset_x = -world_x
+        self.offset_y = -world_y
+        self.update()
 
     def set_pose_mode(self, active: bool):
         self.pose_mode = active

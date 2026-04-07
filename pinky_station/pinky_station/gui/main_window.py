@@ -224,6 +224,7 @@ class PinkyStationWindow(QMainWindow):
             self.terminal_view.append_log(
                 2, f"2D Pose set: ({x:.2f}, {y:.2f}, {math.degrees(theta):.1f}deg)"
             )
+            self.map_view.center_on(x, y)
         self.toolbar.btn_pose.setChecked(False)
 
     # ── Navigation ────────────────────────────────────────────────────
@@ -290,7 +291,7 @@ class PinkyStationWindow(QMainWindow):
         wx, wy = self.map_view.waypoints[self.current_waypoint_idx]
         dist = math.sqrt((msg.x - wx) ** 2 + (msg.y - wy) ** 2)
 
-        if dist < 0.3:
+        if dist < 0.15:
             self.current_waypoint_idx += 1
             self.map_view.current_waypoint_idx = self.current_waypoint_idx
             if self.current_waypoint_idx < len(self.map_view.waypoints):

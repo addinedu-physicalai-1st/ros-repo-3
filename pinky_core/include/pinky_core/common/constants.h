@@ -41,7 +41,7 @@ constexpr float  kKpW             = 1.5f;    // PD angular proportional
 constexpr float  kKdW             = 0.3f;    // PD angular derivative
 constexpr int    kMaxSteps        = 750;
 constexpr float  kGoalDistScale   = 5.0f;    // normalization divisor
-constexpr float  kGoalTolerance   = 0.05f;   // meters
+constexpr float  kGoalTolerance   = 0.15f;   // meters
 constexpr float  kLookaheadDist   = 0.5f;    // meters
 constexpr double kControlPeriodMs = 50.0;    // 20Hz
 

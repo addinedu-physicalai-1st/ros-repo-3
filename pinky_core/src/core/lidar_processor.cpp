@@ -48,7 +48,7 @@ LidarSectors LidarProcessor::Process(const float* ranges,
 
     float sector_min = max_range_;
     for (int j = start; j < end; ++j) {
-      if (cleaned[j] > 0.05f) { // ignore 0s and very small invalid readings
+      if (cleaned[j] > 0.10f) { // ignore noise below RPLIDAR min range (~15cm)
         sector_min = std::min(sector_min, cleaned[j]);
       }
     }
