@@ -41,7 +41,7 @@ PC 환경은 Python 기반의 GUI 애플리케이션으로 구성됩니다.
   ```bash
   uv pip install -r pinky_station/requirements.txt
   ```
-  *(PyQt5, PyZMQ, **protobuf**, numpy 등의 필수 패키지가 포함되어 있습니다.)*
+  *(PyQt6, PyZMQ, **protobuf**, numpy 등의 필수 패키지가 포함되어 있습니다.)*
 
 ### [Robot - pinky_core]
 라즈베리파이 등 로봇 환경은 C++ 기반으로 하드웨어와 직접 통신합니다.
