@@ -8,6 +8,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 import struct
 import math
 
+from pinky_station.core.path_planner import PathPlanner
+
 class MapWidget(QWidget):
     sig_set_goal = pyqtSignal(float, float, float)
     sig_set_pose = pyqtSignal(float, float, float)
@@ -40,6 +42,8 @@ class MapWidget(QWidget):
         self.map_image: QImage | None = None
         self.map_resolution = 0.05
         self.map_origin = (0.0, 0.0)
+        self.path_planner: PathPlanner | None = None
+        self.planned_path: list[tuple[float, float]] | None = None
 
     def load_map(self, yaml_path: str | Path):
         yaml_path = Path(yaml_path)
@@ -62,6 +66,11 @@ class MapWidget(QWidget):
             self.map_resolution = float(data.get('resolution', 0.05))
             origin = data.get('origin', [0.0, 0.0, 0.0])
             self.map_origin = (float(origin[0]), float(origin[1]))
+            try:
+                self.path_planner = PathPlanner(
+                    self.map_image, self.map_resolution, self.map_origin)
+            except Exception:
+                self.path_planner = None
             self.update()
         except Exception:
             pass
@@ -76,12 +85,21 @@ class MapWidget(QWidget):
             self.waypoints.append(self.potential_waypoint)
             self.potential_waypoint = None
             self.sig_potential_waypoint_selected.emit(False)
+            self._replan_path()
             self.update()
 
     def clear_waypoints(self):
         self.waypoints.clear()
         self.potential_waypoint = None
+        self.planned_path = None
+        self.trail.clear()
         self.update()
+
+    def _replan_path(self):
+        """Recompute A* planned path through all waypoints."""
+        self.planned_path = None
+        if self.path_planner and len(self.waypoints) >= 2:
+            self.planned_path = self.path_planner.plan_through(self.waypoints)
 
     def update_odom(self, robot_id: str, msg):
         try:
@@ -179,30 +197,43 @@ class MapWidget(QWidget):
         painter.setPen(QPen(QColor(0, 255, 0, 60), 1))
         painter.drawLine(p0, py)
 
-        # Draw planned path (static waypoint connections — dim dashed)
-        if len(self.waypoints) >= 2:
+        # Draw planned path (A* obstacle-avoiding or direct fallback)
+        display_path = self.planned_path
+        if display_path and len(display_path) >= 2:
+            painter.setPen(QPen(QColor(255, 255, 0, 80), 1, Qt.PenStyle.DashLine))
+            for i in range(len(display_path) - 1):
+                p0 = world_to_screen.map(QPointF(*display_path[i]))
+                p1 = world_to_screen.map(QPointF(*display_path[i+1]))
+                painter.drawLine(p0, p1)
+        elif len(self.waypoints) >= 2:
             painter.setPen(QPen(QColor(255, 255, 0, 50), 1, Qt.PenStyle.DashLine))
             for i in range(len(self.waypoints) - 1):
                 p0 = world_to_screen.map(QPointF(*self.waypoints[i]))
                 p1 = world_to_screen.map(QPointF(*self.waypoints[i+1]))
                 painter.drawLine(p0, p1)
 
-        # Draw live navigation path (smooth spline curve)
+        # Draw live navigation path (smooth spline through A* or waypoints)
         if (self.current_waypoint_idx >= 0
                 and self.active_robot_id
                 and self.active_robot_id in self.robots_pose
                 and self.current_waypoint_idx < len(self.waypoints)):
             rx, ry, rtheta = self.robots_pose[self.active_robot_id]
+            remaining_wps = list(self.waypoints[self.current_waypoint_idx:])
 
-            # Build control points: robot position + remaining waypoints
-            nav_pts = [(rx, ry)] + list(
-                self.waypoints[self.current_waypoint_idx:])
+            # Use A* planned path from robot to remaining waypoints if available
+            nav_pts = [(rx, ry)]
+            if self.path_planner and remaining_wps:
+                live_plan = self.path_planner.plan_through(
+                    [(rx, ry)] + remaining_wps)
+                if live_plan:
+                    nav_pts = live_plan
+                else:
+                    nav_pts += remaining_wps
+            else:
+                nav_pts += remaining_wps
 
             if len(nav_pts) >= 2:
-                # Generate smooth spline in world coords
                 spline_world = self._catmull_rom_chain(nav_pts, segments=12)
-
-                # Convert to screen and draw as QPainterPath
                 path = QPainterPath()
                 sp0 = world_to_screen.map(QPointF(*spline_world[0]))
                 path.moveTo(sp0)
