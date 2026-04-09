@@ -5,6 +5,7 @@
 #include "realtime_tools/realtime_publisher.hpp"
 
 #include "wiringPiI2C.h"
+#include <wiringPi.h>
 
 using realtime_tools::RealtimePublisher;
 
