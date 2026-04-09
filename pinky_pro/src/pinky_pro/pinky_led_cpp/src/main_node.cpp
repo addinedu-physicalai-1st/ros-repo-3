@@ -34,27 +34,23 @@ public:
         int dma_channel = this->get_parameter("dma_channel").as_int();
         int initial_brightness = this->get_parameter("brightness").as_int();
 
-        // Initialize ws2811 structure
-        led_string_ = {
-            .freq = TARGET_FREQ,
-            .dmanum = dma_channel,
-            .channel = {
-                {
-                    .gpionum = gpio_pin,
-                    .invert = 0,
-                    .count = led_count_,
-                    .strip_type = STRIP_TYPE,
-                    .brightness = static_cast<uint8_t>(initial_brightness),
-                },
-                {
-                    .gpionum = 0,
-                    .invert = 0,
-                    .count = 0,
-                    .strip_type = 0,
-                    .brightness = 0,
-                }
-            }
-        };
+        // Initialize ws2811 structure (avoid C99 designated initializers for C++ compatibility)
+        led_string_.freq = TARGET_FREQ;
+        led_string_.dmanum = dma_channel;
+        
+        // Channel 0
+        led_string_.channel[0].gpionum = gpio_pin;
+        led_string_.channel[0].invert = 0;
+        led_string_.channel[0].count = led_count_;
+        led_string_.channel[0].strip_type = STRIP_TYPE;
+        led_string_.channel[0].brightness = static_cast<uint8_t>(initial_brightness);
+        
+        // Channel 1 (unused)
+        led_string_.channel[1].gpionum = 0;
+        led_string_.channel[1].invert = 0;
+        led_string_.channel[1].count = 0;
+        led_string_.channel[1].strip_type = 0;
+        led_string_.channel[1].brightness = 0;
 
         if (ws2811_init(&led_string_) != WS2811_SUCCESS) {
             RCLCPP_ERROR(this->get_logger(), "ws2811_init failed");
