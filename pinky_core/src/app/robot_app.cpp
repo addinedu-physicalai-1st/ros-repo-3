@@ -582,7 +582,7 @@ void RobotApp::NavLoop() {
 
         // Safety layer: limit forward speed when front sectors are close.
         float front_min = 1.0f;
-        for (int s = 10; s <= 14; ++s) {
+        for (int s = 11; s <= 12; ++s) {
           front_min = std::min(front_min, sectors.sectors[s]);
         }
         float front_dist = front_min * kMaxLidarDist;

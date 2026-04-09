@@ -56,7 +56,7 @@ constexpr float  kSafetyStopDist    = 0.12f;    // meters
 constexpr float  kSafetyScaleDist   = 0.25f;    // meters
 constexpr float  kPCtrlVMax         = 0.12f;    // m/s
 constexpr float  kPCtrlWMax         = 0.8f;     // rad/s
-constexpr float  kLidarMinRange     = 0.15f;    // RPLIDAR S2 min valid range
+constexpr float  kLidarMinRange     = 0.01f;    // RPLIDAR S2 min valid range (lowered to detect close obstacles)
 
 // ---------------------------------------------------------------------------
 // Battery
