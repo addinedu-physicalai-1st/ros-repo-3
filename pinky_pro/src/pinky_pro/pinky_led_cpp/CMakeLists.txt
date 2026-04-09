@@ -11,7 +11,9 @@ find_package(rclcpp REQUIRED)
 find_package(pinky_interfaces REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-  set(WS281X_DIR "/home/hajun/ros2_ws/pinky/pinky_devices/rpi_ws281x")
+  # Use relative path to support different workspace names like pinky_cpp
+  get_filename_component(WORKSPACE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../" ABSOLUTE)
+  set(WS281X_DIR "${WORKSPACE_DIR}/pinky_devices/rpi_ws281x")
 
   add_executable(led_service_node src/main_node.cpp)
   target_include_directories(led_service_node PRIVATE ${WS281X_DIR})
