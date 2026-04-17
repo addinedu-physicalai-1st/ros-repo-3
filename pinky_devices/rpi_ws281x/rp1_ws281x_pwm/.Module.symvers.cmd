@@ -1,0 +1,1 @@
+savedcmd_/home/pinky/pinky_devices/rpi_ws281x/rp1_ws281x_pwm/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/pinky/pinky_devices/rpi_ws281x/rp1_ws281x_pwm/Module.symvers -T /home/pinky/pinky_devices/rpi_ws281x/rp1_ws281x_pwm/modules.order -i Module.symvers -e 

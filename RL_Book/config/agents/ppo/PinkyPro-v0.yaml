@@ -1,0 +1,85 @@
+################### Common Part
+# GPU 가속 강제 (RTX 4060)
+use_cuda: True
+device_num: 0
+
+# Ray 분산 처리 자원 (4 로봇 병렬)
+num_cpus: 4
+num_gpus: 1
+
+# 하이퍼파라미터 안정성
+epsilon: 0.0000001
+optim_betas: [0.9, 0.999]
+optim_eps: 0.00001
+torch_deterministic: True
+
+# Environment (새로 만든 PinkyNavEnv 래퍼 사용)
+env_wrapper: "pinky"
+env_name: "PinkyPro-v0"
+n_envs: 1
+distributed_processing_type: "sync"
+
+# Rendering: 헤드리스(Headless) 모드로 전환하여 CPU 부하 대폭 감소
+render: False
+
+# Inference
+training_mode: True
+inference_model_path: ""
+inference_max_episodes: 100
+
+# Logging options
+log_interval: 1024 # 에포크 단위로 TensorBoard에 로그 출력
+use_tensorboard: True
+
+# Checkpoint (학습 강제 종료 방어 및 자동 파라미터 백업)
+save_model: True
+save_model_interval: 20000 # 2만 스텝마다 `.pth` 백업 파일 생성
+checkpoint_path: "results/pinky_nav/models/ppo_PinkyPro-v0_2026-03-25_02-26-45"
+load_step: 0
+local_results_path: "results/pinky_nav"
+
+################### Training Part
+# Training Steps
+max_environment_steps: 5000000 # 총 학습 스텝 (충분한 학습량)
+n_steps: 2048 # Phase 3: 목표 도달에 충분한 롤아웃 길이
+n_episodes: 0
+n_epochs: 10 # 효율적인 데이터 재사용 (PPO 특성)
+batch_size: 128 # 2D 액션에 맞게 축소
+
+# Learning Rate
+lr_policy: 0.0003 # Phase 2 검증 안정적 수렴률
+lr_critic: 0.001
+
+# Learning Rate Annealing (오버슈팅 억제 핵심 1)
+lr_annealing: True # 지속적 감소로 목표점 부근의 덜덜거림 방지
+
+# Epsilon greedy noise
+epsilon_greedy: False
+
+# Warming Up step
+warmup_step: 0
+
+# Gradient Clipping
+grad_norm_clip: 0.5
+
+# PPO Clipping (오버슈팅 억제 핵심 2)
+ppo_clipping_epsilon: 0.2 # Phase 3 초기: 넓은 탐색 허용
+clip_schedule: True # 진행도에 따라 오차 허용치 축소
+
+# discount factor
+gamma: 0.99
+
+# Return and Advantage
+advantage_type: "gae"
+return_standardization: True
+gae_standardization: True
+gae_lambda: 0.95
+
+# loss
+vloss_coef: 0.5
+eloss_coef: 0.005 # entropy 폭주 방지 (σ가 증가하지 않도록 약한 보너스)
+
+# Network Hidden dims
+# 28D 상태 + 2D 액션에 적합한 네트워크 (3층→2층 축소)
+actor_hidden_dims: [128, 128]
+critic_hidden_dims: [128, 128]

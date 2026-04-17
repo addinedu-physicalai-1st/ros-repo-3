@@ -1,0 +1,23 @@
+# Pinky Station Configuration
+connection:
+  default_host: "192.168.0.100"
+  tcp_port: 9100
+  udp_port: 9200
+  ping_interval_s: 2.0
+  connect_timeout_s: 5.0
+
+gui:
+  window_width: 1200
+  window_height: 800
+  camera_fps: 15
+  map_scale: 50.0
+
+teleop:
+  default_linear_speed: 0.10
+  max_linear_speed: 0.26
+  default_angular_speed: 0.5
+  max_angular_speed: 1.0
+
+terminal:
+  max_lines: 5000
+  default_filter: "All"

@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: pinkylib
+Version: 1.4
+Requires-Dist: rpi-lgpio
+Requires-Dist: smbus2
+Requires-Dist: opencv-python
+Requires-Dist: dynamixel_sdk
+Dynamic: requires-dist

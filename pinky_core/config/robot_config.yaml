@@ -1,0 +1,49 @@
+# Pinky Robot Configuration
+network:
+  tcp_port: 9100
+  udp_port: 9200
+
+hal:
+  enable: true
+  motor:
+    device: "/dev/ttyAMA4"
+    baudrate: 1000000
+    id_left: 1
+    id_right: 2
+  lidar:
+    device: "/dev/ttyAMA0"
+    baudrate: 460800
+  imu:
+    interface: "/dev/i2c-0"
+    address: 0x28
+  adc:
+    interface: "/dev/i2c-1"
+    address: 0x08
+  led:
+    gpio: 18
+    count: 8
+    type: "GRB"
+  lamp:
+    gpio: 19
+    count: 8
+    type: "GBR"
+  lcd:
+    spi_bus: 0
+    spi_speed: 80000000
+    gpio_rst: 27
+    gpio_dc: 25
+    gpio_bl: 18
+
+robot:
+  id: "7"
+  wheel_radius: 0.028
+  wheel_base: 0.0961
+  encoder_ppr: 4096
+  max_rpm: 100.0
+
+rates:
+  motor_hz: 50
+  imu_hz: 100
+  adc_hz: 20
+  lidar_hz: 10
+  control_hz: 20

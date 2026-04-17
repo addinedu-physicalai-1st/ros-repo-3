@@ -1,0 +1,8 @@
+setup.py
+pinky_lcd/__init__.py
+pinky_lcd/pinky_lcd.py
+pinky_lcd.egg-info/PKG-INFO
+pinky_lcd.egg-info/SOURCES.txt
+pinky_lcd.egg-info/dependency_links.txt
+pinky_lcd.egg-info/requires.txt
+pinky_lcd.egg-info/top_level.txt

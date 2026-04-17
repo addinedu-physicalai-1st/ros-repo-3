@@ -1,0 +1,11 @@
+#!/bin/bash
+
+echo "load kernel module"
+/usr/sbin/insmod /home/pinky/pinky_devices/rpi_ws281x/rp1_ws281x_pwm/rp1_ws281x_pwm.ko pwm_channel=3
+/usr/bin/dtoverlay -d /home/pinky/pinky_devices/rpi_ws281x/rp1_ws281x_pwm rp1_ws281x_pwm
+pinctrl set 19 a3 pn
+chmod 666 /dev/ws281x_pwm
+
+while true; do
+        sleep 5
+done
